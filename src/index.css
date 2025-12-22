@@ -1,119 +1,340 @@
-/* Importeer het lettertype Inter */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* src/index.css - VOLLEDIGE CODE */
 
-/* --- CORE STYLES --- */
-:root { 
-    --bg: #f8fafc; 
-    --panel: #ffffff; 
-    --text: #334155; 
-    --muted: #94a3b8; 
-    --primary: #0f172a; 
-    --accent: #0ea5e9; 
-    --success: #059669; 
-    --danger: #dc2626; 
-    --warning: #d97706; 
-    --border: #e2e8f0; 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+:root {
+  --primary: #2563eb;       /* Mooi helder blauw */
+  --primary-hover: #1d4ed8;
+  --bg-color: #f8fafc;      /* Lichte achtergrond */
+  --sidebar-bg: #ffffff;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #f59e0b;        /* Oranje/Goud voor accenten */
+  --success: #10b981;       /* Groen */
+  --danger: #ef4444;        /* Rood */
 }
 
-body { 
-    margin:0; font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; font-size:14px; 
-    font-feature-settings: "tnum"; font-variant-numeric: tabular-nums;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-.app-container { display:flex; height:100vh; }
-
-/* LAYOUT */
-.sidebar { width:260px; background:var(--panel); border-right:1px solid var(--border); padding:24px; display:flex; flex-direction:column; z-index: 10; }
-.main { flex:1; padding:30px 40px; overflow-y:auto; }
-.stats { width:320px; background:var(--panel); border-left:1px solid var(--border); padding:24px; overflow-y:auto; }
-
-/* COMPONENTS */
-.card { 
-    background:var(--panel); border-radius:12px; padding:24px; margin-bottom:20px; 
-    box-shadow: var(--shadow-md); border: 1px solid rgba(255,255,255,0.5); position: relative; 
+body {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
 }
 
-.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
-.grid-4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:15px; } 
-
-/* NAV & BUTTONS */
-.nav-item { padding:12px; margin-bottom:5px; border-radius:8px; cursor:pointer; color:var(--muted); font-weight:500; display:flex; align-items:center; gap: 10px; transition:0.2s; }
-.nav-item i { font-size: 1.2rem; }
-.nav-item:hover { background:#f1f5f9; color:var(--text); }
-.nav-item.active { background:#f0f9ff; color:#0284c7; font-weight:600; }
-
-.btn { padding:10px 16px; border-radius:8px; border:none; cursor:pointer; font-weight:600; font-family:inherit; width:100%; transition:0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.btn-primary { background:var(--primary); color:white; box-shadow: var(--shadow-sm); }
-.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-.btn-ghost { background:transparent; border:1px solid var(--border); color:var(--muted); position: relative; }
-.btn-ghost:hover { border-color: var(--text); color: var(--text); }
-.btn-sm { padding:6px 12px; font-size:0.8rem; width:auto; }
-
-input, select { 
-    width:100%; padding:10px 12px; border:1px solid transparent; background: #f1f5f9;
-    border-radius:8px; margin-bottom:10px; font-family:inherit; box-sizing:border-box; transition: all 0.2s;
+/* --- LAYOUT --- */
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden; /* Voorkomt scrollen op de body zelf */
 }
-input:focus, select:focus { background: #fff; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1); outline: none; }
 
-/* COMMAND WALL */
-.copilot-header { 
-    background: #fff; border: 1px solid var(--border); color: var(--text); padding: 20px; border-radius: 12px; margin-bottom: 25px; 
-    display: flex; align-items: center; gap: 15px; box-shadow: var(--shadow-sm);
+/* SIDEBAR (Desktop Stijl) */
+.sidebar {
+  width: 260px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  flex-shrink: 0;
+  /* Zorgt dat je kunt scrollen in het menu als het scherm te laag is */
+  overflow-y: auto; 
 }
-.copilot-icon { font-size: 1.8rem; color: var(--accent); display: flex; align-items: center; }
-.copilot-text { font-size: 1rem; font-weight: 500; line-height: 1.5; }
-.copilot-highlight { color: var(--accent); font-weight: 700; }
 
-.pillar-card { 
-    background: white; border-radius: 12px; padding: 20px 15px; text-align: center; 
-    transition: transform 0.2s; position: relative; cursor: help; box-shadow: var(--shadow-md); 
+.logo {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--primary);
+  margin-bottom: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.pillar-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.pillar-label { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 8px; letter-spacing: 0.5px; display: flex; justify-content: center; align-items: center; gap: 5px; }
-.pillar-value { font-size: 1.6rem; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
-.pillar-sub { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
-.val-good { color: var(--success); } .val-bad { color: var(--danger); } .val-mid { color: var(--warning); }
-.dd-bar-bg { height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; margin-top: 10px; }
-.dd-bar-fill { height: 100%; width: 100%; transition: width 0.5s; }
 
-/* TABLES & RESPONSIVE ACTIONS */
-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-table th { text-align: left; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 1px; color: var(--muted); border-bottom: 2px solid #f1f5f9; padding: 12px 10px; font-weight: 600; }
-table td { border-bottom: 1px solid #f8fafc; padding: 14px 10px; font-size: 0.9rem; color: var(--text); vertical-align: middle; }
-table td:nth-child(4), table th:nth-child(4), table td:nth-child(5), table th:nth-child(5), table td:nth-child(6), table th:nth-child(6) { text-align: right; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  margin-bottom: 5px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: 1rem;
+}
 
-.row-action { color: var(--muted); cursor: pointer; transition: color 0.2s; opacity: 1; }
+.nav-item:hover {
+  background: #eff6ff;
+  color: var(--primary);
+}
+
+.nav-item.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+/* MAIN CONTENT */
+.main {
+  flex-grow: 1;
+  padding: 30px;
+  overflow-y: auto; /* De inhoud scrollt, niet de hele pagina */
+  background: var(--bg-color);
+}
+
+h1 {
+  font-size: 1.8rem;
+  margin-bottom: 5px;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+  margin-top: 30px;
+  color: var(--text-main);
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin-bottom: 15px;
+}
+
+/* --- COMPONENTS --- */
+
+/* Cards (Witte blokken) */
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 25px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+/* Grids (Indelingen) */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+
+/* Buttons */
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.btn:hover { opacity: 0.9; }
+.btn-primary { background: var(--primary); color: white; }
+.btn-ghost { background: transparent; color: var(--text-muted); }
+.btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+
+/* Inputs */
+input, select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  margin-bottom: 5px;
+  background: white;
+}
+
+input:focus, select:focus {
+  outline: 2px solid var(--primary);
+  border-color: transparent;
+}
+
+.input-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  padding: 12px 15px;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+td {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+
+/* Badges & Text Styles */
+.badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+.badge-blue { background: #dbeafe; color: var(--primary); }
+.badge-gray { background: #f1f5f9; color: var(--text-muted); }
+
+.score-badge { font-weight: 800; font-size: 1rem; padding: 4px 8px; border-radius: 6px; }
+.score-good { color: var(--success); background: #d1fae5; }
+.score-bad { color: var(--danger); background: #fee2e2; }
+
+.money-display { font-family: 'Courier New', monospace; letter-spacing: -0.5px; }
+
+/* Co-Pilot Styles */
+.copilot-header {
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  gap: 15px;
+  border: 1px solid transparent;
+}
+.copilot-calm { background: white; border-color: var(--border); }
+.copilot-alert { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+.copilot-icon { flex-shrink: 0; }
+.copilot-text { font-size: 1.1rem; line-height: 1.5; }
+
+/* Pillar Cards (Dashboard) */
+.pillar-card {
+  background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center;
+}
+.pillar-label { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 10px; }
+.pillar-value { font-size: 2rem; font-weight: 800; color: var(--text-main); margin-bottom: 5px; }
+.pillar-sub { font-size: 0.8rem; color: var(--text-muted); }
+.val-good { color: var(--success); }
+.val-bad { color: var(--danger); }
+
+/* Progress Bar in Pillar */
+.dd-bar-bg { width: 100%; height: 6px; background: #f1f5f9; border-radius: 3px; margin: 10px 0; overflow: hidden; }
+.dd-bar-fill { height: 100%; transition: width 0.5s ease; }
+
+/* Modal (Pop-up) */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex; justify-content: center; alignItems: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.modal {
+  background: white; padding: 30px; border-radius: 12px;
+  width: 400px; max-width: 90%;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+/* Acties */
+.row-action { cursor: pointer; color: var(--text-muted); transition: color 0.2s; }
 .row-action:hover { color: var(--danger); }
 
-@media (min-width: 1024px) {
-    .row-action { opacity: 0; }
-    tr:hover .row-action { opacity: 1; }
+/* --- MOBILE & RESPONSIVE --- */
+@media (max-width: 768px) {
+  
+  /* 1. Layout draait om: Menu onderaan */
+  .app-container {
+    flex-direction: column-reverse;
+    height: 100vh; 
+    /* Zorgt dat iPhone Safari balken niet in de weg zitten */
+    height: 100dvh; 
+  }
+
+  /* 2. De Sidebar wordt een 'Bottom Bar' */
+  .sidebar {
+    width: 100%;
+    height: auto; /* Hoogte past zich aan */
+    min-height: 70px;
+    flex-direction: row; /* Iconen naast elkaar */
+    justify-content: space-around;
+    padding: 10px;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    position: relative; /* Zit vast in de flex container */
+    z-index: 1000;
+    
+    /* SCHUIVEN: Als er te veel icoontjes zijn, kun je horizontaal scrollen */
+    overflow-x: auto; 
+    overflow-y: hidden;
+    white-space: nowrap; /* Zorgt dat iconen op 1 regel blijven */
+  }
+
+  .logo {
+    display: none; /* Logo weg op mobiel */
+  }
+
+  .nav-item {
+    flex-direction: column; /* Icoon boven tekst */
+    font-size: 0.65rem;
+    padding: 8px;
+    gap: 4px;
+    border-radius: 8px;
+    width: auto; /* Niet uitrekken */
+    min-width: 60px; /* Minimaal klikgebied */
+    justify-content: center;
+  }
+  
+  .nav-item span {
+    display: block; /* Tekst tonen */
+  }
+
+  /* 3. Main Content ruimte geven */
+  .main {
+    width: 100%;
+    flex: 1; /* Neemt de rest van de ruimte in */
+    padding: 15px;
+    padding-bottom: 90px; /* Extra ruimte zodat je onderaan nog kan lezen */
+    overflow-y: auto;
+  }
+
+  /* 4. Grids onder elkaar */
+  .grid-2, .grid-3, .grid-4 {
+    grid-template-columns: 1fr; 
+    gap: 15px;
+  }
+
+  /* 5. Tabellen schuifbaar maken */
+  .card {
+    overflow-x: auto; 
+  }
+  
+  table {
+    min-width: 600px; /* Zorgt dat kolommen niet geplet worden */
+  }
+  
+  /* Kleiner lettertype in tabellen op mobiel */
+  th, td {
+    padding: 10px;
+    font-size: 0.85rem;
+  }
+
+  /* 6. Dashboard cijfers iets kleiner */
+  .pillar-value { font-size: 1.5rem; }
+  
+  /* 7. Modals */
+  .modal { width: 95%; margin: auto; }
 }
-
-/* UTILS */
-.badge { padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight: 600; }
-.badge-green { background:#ecfdf5; color:var(--success); } 
-.badge-blue { background:#f0f9ff; color:#0369a1; } 
-.badge-gray { background:#f1f5f9; color:#64748b; }
-.score-badge { display:inline-block; padding:4px 10px; border-radius:20px; font-weight:700; font-size:0.8rem; }
-.score-good { background:#ecfdf5; color:var(--success); } .score-bad { background:#fef2f2; color:var(--danger); }
-
-.filter-bar { display: flex; gap: 10px; align-items: center; background: white; padding: 8px 15px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 25px; box-shadow: var(--shadow-sm); }
-.date-input { width: auto; margin:0; padding: 6px 10px; font-size: 0.85rem; }
-
-.safety-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; }
-.unsaved .safety-dot { background: var(--warning); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3); animation: pulse 2s infinite; }
-@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-.zen-blur { filter:blur(6px); opacity: 0.5; transition: 0.3s; }
-.zen-blur:hover { filter:blur(0); opacity: 1; }
-
-.modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.6); display:none; justify-content:center; align-items:center; z-index:99; backdrop-filter: blur(5px); }
-.modal { background:white; padding:30px; border-radius:16px; width:450px; max-width:90%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); border: 1px solid var(--border); }
-
-h1, h2, h3 { color: var(--primary); margin-top: 0; }
-h1 { font-size: 1.5rem; letter-spacing: -0.5px; }
