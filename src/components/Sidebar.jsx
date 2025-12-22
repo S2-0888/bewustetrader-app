@@ -12,11 +12,13 @@ export default function Sidebar({ view, setView, isOpen, closeMenu }) {
     // We voegen de class 'open' toe als isOpen true is
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>
       
-      {/* Header met Logo en Sluit-knop */}
+      {/* Header met Logo (NU MET PLAATJE) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40 }}>
         <div className="logo">
-           🔹 Bewuste Trader
+           {/* We gebruiken hier de favicon die je net hebt geupload */}
+           <img src="/favicon.png" alt="Logo" style={{ height: '50px', width: 'auto' }} />
         </div>
+        
         {/* Sluit knop (alleen zichtbaar op mobiel) */}
         <button className="close-btn" onClick={closeMenu}>
             <X size={24} />
