@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { Trash, Link as LinkIcon, X, Wallet, ToggleLeft, ToggleRight, ArrowUpRight, ArrowDownRight, CheckSquare, Smiley, SmileySad, SmileyMeh, SmileyNervous, Warning } from '@phosphor-icons/react';
+import { 
+  Trash, X, Wallet, ToggleLeft, ToggleRight, ArrowUpRight, 
+  ArrowDownRight, CheckSquare, Smiley, SmileySad, SmileyMeh, 
+  SmileyNervous, Warning 
+} from '@phosphor-icons/react';
 import AdvancedJournalForm from './AdvancedJournalForm';
 
 // --- DEFAULTS ---
@@ -32,7 +36,7 @@ export default function TradeLab() {
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     accountId: '', pair: '', direction: 'LONG', 
-    strategy: '', setupQuality: '', mistake: '', // Start als string (dropdown)
+    strategy: '', setupQuality: '', mistake: '', 
     risk: '', screenshot: '', checkedRules: [] 
   });
 
@@ -63,13 +67,6 @@ export default function TradeLab() {
                     setupQuality: data.quality?.[0] || '',
                     mistake: data.mistakes?.[0] || ''
                 }));
-            } else {
-                setForm(prev => ({
-                    ...prev,
-                    strategy: DEFAULT_CONFIG.strategies[0],
-                    setupQuality: DEFAULT_CONFIG.quality[0],
-                    mistake: DEFAULT_CONFIG.mistakes[0]
-                }));
             }
         } catch (e) { console.log("Geen settings gevonden"); }
     };
@@ -86,29 +83,17 @@ export default function TradeLab() {
     });
   };
 
-  // 2. HELPER VOOR EDIT MODAL (MULTI SELECT MISTAKES)
   const toggleEditMistake = (mistakeTag) => {
       if (!editingTrade) return;
-      
-      // Zorg dat we altijd met een array werken (backward compatibility)
-      let currentMistakes = [];
-      if (Array.isArray(editingTrade.mistake)) {
-          currentMistakes = editingTrade.mistake;
-      } else if (typeof editingTrade.mistake === 'string' && editingTrade.mistake) {
-          currentMistakes = [editingTrade.mistake];
-      }
-
-      // Toggle logica
+      let currentMistakes = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
       if (currentMistakes.includes(mistakeTag)) {
           currentMistakes = currentMistakes.filter(m => m !== mistakeTag);
       } else {
           currentMistakes = [...currentMistakes, mistakeTag];
       }
-
       setEditingTrade({ ...editingTrade, mistake: currentMistakes });
   };
 
-  // 3. TRADE OPENEN (SIMPLE)
   const handleSimpleOpen = async (e) => {
     e.preventDefault();
     const user = auth.currentUser;
@@ -118,13 +103,9 @@ export default function TradeLab() {
     const accountName = selectedAcc ? `${selectedAcc.firm} (${selectedAcc.type})` : 'Unknown';
     const disciplineScore = Math.round(((form.checkedRules || []).length / (config.rules?.length || 1)) * 100);
 
-    // We slaan de mistake op als Array, ook al komt het uit een single dropdown
-    // Dit zorgt voor consistentie met de Edit Modal
-    const initialMistakes = form.mistake ? [form.mistake] : [];
-
     await addDoc(collection(db, "users", user.uid, "trades"), {
       ...form,
-      mistake: initialMistakes, // Opslaan als array
+      mistake: form.mistake ? [form.mistake] : [],
       checkedRules: form.checkedRules || [],
       accountName,
       risk: Number(form.risk),
@@ -137,14 +118,10 @@ export default function TradeLab() {
     setForm(prev => ({ ...prev, pair: '', risk: '', screenshot: '', checkedRules: [] }));
   };
 
-  // 4. TRADE OPENEN (PRO)
   const handleAdvancedSubmit = async (proData) => {
     const user = auth.currentUser;
     if (!user) return;
-    
-    // Zorg ook hier dat mistake een array is
     const mistakeArray = Array.isArray(proData.mistake) ? proData.mistake : (proData.mistake ? [proData.mistake] : []);
-
     await addDoc(collection(db, "users", user.uid, "trades"), {
       ...proData,
       mistake: mistakeArray,
@@ -152,16 +129,15 @@ export default function TradeLab() {
       emotion: 'Neutral', notes: '',
       createdAt: new Date()
     });
+    setIsProMode(false);
   };
 
-  // 5. UPDATE & CLOSE
   const handleCloseTrade = async (e) => {
     e.preventDefault();
     if (!closingTrade) return;
     const pnl = Number(closePnl);
-    const risk = closingTrade.risk || 1;
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
-        status: 'CLOSED', pnl: pnl, rMultiple: Math.round((pnl / risk) * 100) / 100
+        status: 'CLOSED', pnl: pnl, rMultiple: Math.round((pnl / (closingTrade.risk || 1)) * 100) / 100
     });
     setClosingTrade(null); setClosePnl('');
   };
@@ -171,7 +147,6 @@ export default function TradeLab() {
     if (!editingTrade) return;
     const risk = Number(editingTrade.risk) || 1;
     const pnl = Number(editingTrade.pnl);
-    
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
         ...editingTrade, 
         risk, pnl, 
@@ -179,8 +154,6 @@ export default function TradeLab() {
     });
     setEditingTrade(null);
   };
-
-  const handleDelete = async (id, e) => { e.stopPropagation(); if (confirm('Trade verwijderen?')) await deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", id)); };
 
   return (
     <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto' }}>
@@ -202,7 +175,6 @@ export default function TradeLab() {
               <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: 25 }}>
                 <form onSubmit={handleSimpleOpen}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 30 }}>
-                        {/* LINKER KOLOM */}
                         <div>
                             <div className="label-xs" style={{ marginBottom: 15, color: '#007AFF' }}>TRADE SETUP</div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
@@ -229,7 +201,6 @@ export default function TradeLab() {
                                  <div className="input-group" style={{marginBottom:0}}><label className="input-label">Screenshot</label><input className="apple-input" placeholder="URL" value={form.screenshot} onChange={e => setForm({...form, screenshot: e.target.value})} /></div>
                             </div>
                         </div>
-                        {/* RECHTER KOLOM */}
                         <div style={{ background: '#F9F9F9', borderRadius: 12, padding: 20, display:'flex', flexDirection:'column' }}>
                             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15 }}>
                                 <div className="label-xs" style={{ marginBottom:0, color:'#FF3B30' }}>CHECK JE REGELS</div>
@@ -254,17 +225,15 @@ export default function TradeLab() {
           )}
       </div>
 
-      {/* LOGBOEK (TABEL) */}
+      {/* LOGBOEK TABLE */}
       <div className="bento-card" style={{ padding: 0, overflow: 'hidden', minHeight: 400 }}>
          <div className="table-container">
             <table className="apple-table">
                 <thead><tr><th style={{width:90}}>Datum</th><th>Info</th><th>Quality</th><th>Status</th><th>Result</th><th></th></tr></thead>
                 <tbody>
                     {trades.map(trade => {
-                        // Display Mistakes (Array handling)
-                        let mistakeDisplay = trade.mistake;
-                        if(Array.isArray(trade.mistake)) mistakeDisplay = trade.mistake.filter(m => !m.includes('None')).join(", ");
-                        else if(trade.mistake && trade.mistake.includes('None')) mistakeDisplay = '';
+                        let mList = Array.isArray(trade.mistake) ? trade.mistake : (trade.mistake ? [trade.mistake] : []);
+                        let mistakeDisplay = mList.filter(m => !m.includes('None')).join(", ");
 
                         return (
                             <tr key={trade.id} onClick={() => setEditingTrade(trade)} className="hover-row" style={{ cursor:'pointer', opacity: trade.status==='CLOSED'?0.9:1 }}>
@@ -279,7 +248,7 @@ export default function TradeLab() {
                                 </td>
                                 <td>{trade.status==='OPEN' ? <span className="badge badge-open">OPEN</span> : <span style={{ fontSize:11, color:'var(--text-muted)' }}>CLOSED</span>}</td>
                                 <td>{trade.status==='OPEN' ? <button onClick={(e)=>{e.stopPropagation();setClosingTrade(trade)}} style={{ background:'#007AFF', color:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11 }}>SLUIT</button> : <div style={{ fontWeight:700, color: trade.pnl>=0?'#30D158':'#FF3B30' }}>{trade.pnl>0?'+':''}€{trade.pnl}</div>}</td>
-                                <td><button onClick={(e)=>handleDelete(trade.id, e)} style={{ border:'none', background:'none', color:'#ccc' }}><Trash size={16}/></button></td>
+                                <td><button onClick={(e)=>{e.stopPropagation(); if(confirm('Verwijderen?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{ border:'none', background:'none', color:'#ccc' }}><Trash size={16}/></button></td>
                             </tr>
                         )
                     })}
@@ -288,7 +257,7 @@ export default function TradeLab() {
          </div>
       </div>
 
-      {/* MODAL 1: SNEL SLUITEN */}
+      {/* MODALS (Close & Edit) */}
       {closingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(2px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
             <div className="bento-card" style={{ width: 320, padding: 30 }}>
@@ -301,51 +270,29 @@ export default function TradeLab() {
         </div>
       )}
 
-      {/* MODAL 2: EDIT TRADE (EVALUATIE) */}
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 700, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}><h3>Edit Trade & Evaluatie</h3><button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none' }}><X size={24}/></button></div>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}><h3>Edit Trade</h3><button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none' }}><X size={24}/></button></div>
                 <form onSubmit={handleUpdateTrade}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                        {/* LINKER KOLOM: DATA */}
                         <div>
-                            <div className="label-xs" style={{color:'#007AFF'}}>HARDE DATA</div>
+                            <div className="label-xs" style={{color:'#007AFF'}}>DATA</div>
                             <div className="input-group"><label className="input-label">P&L (€)</label><input className="apple-input" type="number" value={editingTrade.pnl} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
-                            
                             <div className="input-group"><label className="input-label">Setup Quality</label><select className="apple-input" value={editingTrade.setupQuality} onChange={e => setEditingTrade({...editingTrade, setupQuality: e.target.value})}>{(config.quality||[]).map(q=><option key={q} value={q}>{q}</option>)}</select></div>
-                            
-                            {/* --- MULTI-SELECT MISTAKES (HET NIEUWE ONDERDEEL) --- */}
                             <div className="input-group">
-                                <label className="input-label">Fouten / Evaluatie (Meerdere mogelijk)</label>
+                                <label className="input-label">Mistakes</label>
                                 <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                                     {(config.mistakes || []).map(m => {
-                                        // Check of mistake in de lijst zit (support string en array)
-                                        const currentMistakes = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
-                                        const isSelected = currentMistakes.includes(m);
-                                        
+                                        const curM = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
+                                        const isSel = curM.includes(m);
                                         return (
-                                            <button 
-                                                key={m} 
-                                                type="button" 
-                                                onClick={() => toggleEditMistake(m)}
-                                                style={{ 
-                                                    border: isSelected ? '1px solid #FF3B30' : '1px solid #E5E5EA',
-                                                    background: isSelected ? 'rgba(255, 59, 48, 0.1)' : 'white',
-                                                    color: isSelected ? '#FF3B30' : '#1D1D1F',
-                                                    padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                {m}
-                                            </button>
+                                            <button key={m} type="button" onClick={() => toggleEditMistake(m)} style={{ border: isSel ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: isSel ? 'rgba(255, 59, 48, 0.1)' : 'white', color: isSel ? '#FF3B30' : '#1D1D1F', padding: '6px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer' }}>{m}</button>
                                         );
                                     })}
                                 </div>
                             </div>
                         </div>
-
-                        {/* RECHTER KOLOM: PSYCHOLOGIE */}
                         <div>
                             <div className="label-xs" style={{color:'#FF9F0A'}}>PSYCHOLOGY</div>
                             <div className="input-group"><label className="input-label">Emotion</label><div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>{EMOTIONS.map(em=><div key={em.label} onClick={()=>setEditingTrade({...editingTrade, emotion:em.label})} style={{border:editingTrade.emotion===em.label?`2px solid ${em.color}`:'1px solid #E5E5EA', padding:6, borderRadius:6, cursor:'pointer', fontSize:11}}>{em.label}</div>)}</div></div>
