@@ -1,21 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* KLEURENPALET */
-  --bg-app: #F5F5F7;           /* Apple achtergrond grijs */
-  --bg-card: #FFFFFF;          /* Wit */
-  --text-main: #1D1D1F;        /* Zwart */
-  --text-muted: #86868B;       /* Grijs */
-  
+  --bg-app: #F5F5F7;
+  --bg-card: #FFFFFF;
+  --text-main: #1D1D1F;
+  --text-muted: #86868B;
   --green: #34C759;
   --red: #FF3B30;
   --blue: #007AFF;
-  
-  /* BENTO STIJL */
-  --radius-bento: 24px;        
-  --shadow-bento: 0 4px 24px rgba(0,0,0,0.04); 
-  
-  /* SIDEBAR SETTINGS */
+  --radius-bento: 24px;
+  --shadow-bento: 0 4px 24px rgba(0,0,0,0.04);
   --sidebar-width: 280px;
 }
 
@@ -23,24 +17,20 @@ body {
   background-color: var(--bg-app);
   color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
-  -webkit-font-smoothing: antialiased;
   margin: 0;
   padding: 0;
   height: 100vh;
-  overflow: hidden; /* Voorkom dubbele scrollbalken op body */
+  overflow: hidden;
 }
-
-/* --- 1. DE HOOFD LAYOUT (Koppeling met App.jsx) --- */
 
 .app-container {
   display: flex;
   height: 100vh;
   width: 100vw;
-  background-color: var(--bg-app);
   position: relative;
 }
 
-/* De Sidebar (Zorg dat Sidebar.jsx className="sidebar" heeft!) */
+/* SIDEBAR DESKTOP */
 .sidebar {
   width: var(--sidebar-width);
   background: var(--bg-card);
@@ -52,10 +42,9 @@ body {
   flex-shrink: 0;
   height: 100%;
   z-index: 100;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* DE NIEUWE NAVIGATIE LINKJES */
 .nav-item {
   display: flex;
   align-items: center;
@@ -64,240 +53,78 @@ body {
   margin-bottom: 6px;
   border-radius: 14px;
   color: var(--text-muted);
-  text-decoration: none;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
   border: none;
   background: transparent;
   width: 100%;
-  text-align: left;
+  transition: all 0.2s ease;
 }
 
-.nav-item:hover {
-  background-color: rgba(0,0,0,0.03);
-  color: var(--text-main);
-}
+.nav-item:hover { background: rgba(0,0,0,0.03); color: var(--text-main); }
+.nav-item.active { background: var(--text-main); color: #FFFFFF; }
 
-.nav-item.active {
-  background-color: var(--text-main); /* Zwarte knop voor active */
-  color: #FFFFFF; /* Witte tekst */
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-/* HET CONTENT GEDEELTE (Dit matcht nu jouw <main className="main">) */
 .main {
-  flex: 1; /* Pak alle resterende ruimte */
-  overflow-y: auto; /* Scrollen binnen dit vlak */
-  padding: 0; /* Padding regelen we in de componenten (Dashboard) */
+  flex: 1;
+  overflow-y: auto;
   position: relative;
 }
 
-/* --- 2. MOBIELE ELEMENTEN (Hamburger & Overlay) --- */
-
+/* MOBIELE ELEMENTEN */
 .mobile-menu-btn {
   display: none; /* Verberg op desktop */
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 80;
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  z-index: 2000;
   background: white;
-  border: none;
-  padding: 10px;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  border: 1px solid rgba(0,0,0,0.1);
+  padding: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  color: var(--text-main);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4); /* Donkere waas */
-  backdrop-filter: blur(4px); /* Blur effect */
-  z-index: 90;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(4px);
+  z-index: 900;
 }
 
-/* --- 3. BENTO UI ELEMENTEN (Voor Dashboard.jsx) --- */
-
-.bento-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-bento);
-  padding: 24px;
-  box-shadow: var(--shadow-bento);
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.2s ease;
-  position: relative;
-  overflow: hidden;
-  height: 100%; 
-  box-sizing: border-box;
-  border: 1px solid rgba(0,0,0,0.02);
-}
-
-.bento-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.06);
-}
-
-.label-xs {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.number-huge {
-  font-size: 38px;
-  font-weight: 700; 
-  letter-spacing: -1.5px; 
-  color: var(--text-main);
-  line-height: 1;
-  font-variant-numeric: tabular-nums; 
-}
-
-.number-sub {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: -0.5px;
-}
-
-.bento-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: minmax(180px, auto);
-  gap: 20px;
-  max-width: 1100px;
-  margin: 0 auto;
-}
-
-.span-2 { grid-column: span 2; }
-.span-3 { grid-column: span 3; }
-
-/* --- 4. RESPONSIVE / MOBIEL GEDRAG --- */
-
+/* RESPONSIVE LOGICA */
 @media (max-width: 900px) {
-  /* Layout verandert */
-  .app-container { flex-direction: column; }
-  
-  /* Sidebar verbergen en stylen voor mobiel */
   .sidebar {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
-    transform: translateX(-100%); /* Standaard buiten beeld */
-    width: 280px;
+    z-index: 1000;
+    transform: translateX(-100%); /* Schuif uit beeld ipv display: none */
     box-shadow: 10px 0 30px rgba(0,0,0,0.1);
   }
+
+  .sidebar.open {
+    transform: translateX(0); /* Schuif in beeld */
+  }
+
+  .mobile-menu-btn { display: flex; }
   
-  /* Als sidebar open is (moet via style={{ transform... }} in JS of class geregeld worden */
-  /* Omdat jij isOpen prop gebruikt, regelt Sidebar.jsx dit waarschijnlijk inline of met een class */
-  
-  /* Toon hamburger knop */
-  .mobile-menu-btn { display: flex; align-items: center; justify-content: center; }
-  
-  /* Grid naar 1 kolom */
-  .bento-grid { grid-template-columns: 1fr; }
-  .span-2, .span-3 { grid-column: auto; }
-  
-  /* Content ruimte maken voor knop */
   .main { padding-top: 60px; }
-}
-/* --- 5. APPLE TABLE STIJL (Voor Trade Lab) --- */
-.table-container {
-  overflow-x: auto; /* Horizontaal scrollen op mobiel */
-}
-
-.apple-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  text-align: left;
+  
+  .bento-grid { 
+    grid-template-columns: 1fr; 
+    padding: 15px;
+  }
 }
 
-.apple-table th {
-  padding: 12px 16px;
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-}
-
-.apple-table td {
-  padding: 16px;
-  color: var(--text-main);
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-  font-variant-numeric: tabular-nums; /* Cijfers mooi onder elkaar */
-}
-
-.apple-table tr:last-child td {
-  border-bottom: none;
-}
-
-/* Status Badges in tabel */
-.badge {
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  display: inline-block;
-}
-.badge-win { background: rgba(52, 199, 89, 0.1); color: var(--green); }
-.badge-loss { background: rgba(255, 59, 48, 0.1); color: var(--red); }
-.badge-open { background: rgba(0, 122, 255, 0.1); color: var(--blue); }
-
-/* --- 6. FORMS & INPUTS (Voor Portfolio) --- */
-.input-group {
-  margin-bottom: 16px;
-}
-
-.input-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-  margin-bottom: 6px;
-}
-
-.apple-input {
-  width: 100%;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(0,0,0,0.1);
-  background: #F5F5F7;
-  font-size: 15px;
-  color: var(--text-main);
-  box-sizing: border-box;
-  transition: all 0.2s;
-  font-family: inherit;
-}
-
-.apple-input:focus {
-  outline: none;
-  background: white;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
-}
-
-.btn-primary {
-  background: var(--text-main); /* Zwart */
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.btn-primary:hover {
-  opacity: 0.8;
+/* BENTO CARDS */
+.bento-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-bento);
+  padding: 24px;
+  box-shadow: var(--shadow-bento);
+  border: 1px solid rgba(0,0,0,0.02);
 }
