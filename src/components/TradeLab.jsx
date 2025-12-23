@@ -1,258 +1,362 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
-import { PlusCircle, Trash, X, Gear, Plus } from '@phosphor-icons/react'; // Gear icoon toegevoegd
+import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { Trash, Link as LinkIcon, X, Wallet, ToggleLeft, ToggleRight, ArrowUpRight, ArrowDownRight, CheckSquare, Smiley, SmileySad, SmileyMeh, SmileyNervous, Warning } from '@phosphor-icons/react';
+import AdvancedJournalForm from './AdvancedJournalForm';
+
+// --- DEFAULTS ---
+const DEFAULT_CONFIG = {
+    strategies: ["Breakout", "Pullback", "Reversal", "Trend Following", "Scalp", "News Trade"],
+    rules: ["Max 1% Risico", "Wachten op Candle Close", "Geen impulsieve entry", "Stoploss geplaatst", "Setup in lijn met plan"],
+    mistakes: ["None (Perfect Execution)", "FOMO Entry", "Revenge Trading", "Too Big Size", "Moved Stoploss", "Closed Too Early", "Chasing Price"],
+    quality: ["A+ (Perfect)", "A (Good)", "B (Average)", "C (Forced/Bad)"]
+};
+
+const EMOTIONS = [
+    { label: 'Neutral', icon: <SmileyMeh size={20}/>, color: '#86868B' },
+    { label: 'Confident', icon: <Smiley size={20}/>, color: '#30D158' },
+    { label: 'Fear/Anxious', icon: <SmileyNervous size={20}/>, color: '#FF9F0A' },
+    { label: 'Greed/Tilt', icon: <SmileySad size={20}/>, color: '#FF3B30' },
+];
 
 export default function TradeLab() {
+  const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [selectedAccount, setSelectedAccount] = useState('');
-  
-  // Standaard regels als startpunt
-  const defaultRules = [
-    { id: 'r1', text: "Liquiditeit Sweep", checked: false },
-    { id: 'r2', text: "Break of Structure", checked: false },
-    { id: 'r3', text: "Risk Management OK", checked: false }
-  ];
+  const [config, setConfig] = useState(DEFAULT_CONFIG);
 
-  const [rules, setRules] = useState(defaultRules);
-  const [isEditingRules, setIsEditingRules] = useState(false); // Modus om regels aan te passen
-  const [newRuleText, setNewRuleText] = useState('');
+  const [isProMode, setIsProMode] = useState(false);
+  const [closingTrade, setClosingTrade] = useState(null); 
+  const [editingTrade, setEditingTrade] = useState(null);
+  const [closePnl, setClosePnl] = useState('');
 
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    ticker: '',
-    risk: '',
-    strategy: '-',
-    screenshot: ''
+    accountId: '', pair: '', direction: 'LONG', 
+    strategy: '', setupQuality: '', mistake: '', // Start als string (dropdown)
+    risk: '', screenshot: '', checkedRules: [] 
   });
 
-  const [trades, setTrades] = useState([]);
-  const [closeModal, setCloseModal] = useState({ isOpen: false, tradeId: null, risk: 0, accountId: null });
-  const [pnlInput, setPnlInput] = useState('');
-
-  // --- 1. DATA OPHALEN ---
+  // 1. DATA OPHALEN
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
-
-    // A. Haal Trades op
+    
     const qTrades = query(collection(db, "users", user.uid, "trades"), orderBy("date", "desc"));
-    const unsubTrades = onSnapshot(qTrades, (snapshot) => {
-      setTrades(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    // B. Haal Accounts op
+    const unsubTrades = onSnapshot(qTrades, (snap) => setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    
     const qAccounts = query(collection(db, "users", user.uid, "accounts"));
-    const unsubAccounts = onSnapshot(qAccounts, (snapshot) => {
-      const accs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAccounts(accs);
-      if(accs.length > 0 && !selectedAccount) setSelectedAccount(accs[0].id);
+    const unsubAccounts = onSnapshot(qAccounts, (snap) => {
+      const allAccounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAccounts(allAccounts.filter(acc => acc.status === 'Active')); 
     });
-
-    // C. Haal OPGESLAGEN Regels op (NIEUW!)
-    const fetchRules = async () => {
-        const docRef = doc(db, "users", user.uid, "settings", "config");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists() && docSnap.data().rules) {
-            // Zet 'checked' standaard op false bij laden
-            setRules(docSnap.data().rules.map(r => ({...r, checked: false})));
-        }
+    
+    const fetchSettings = async () => {
+        try {
+            const docRef = doc(db, "users", user.uid, "settings", "tradelab");
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setConfig(data); 
+                setForm(prev => ({
+                    ...prev,
+                    strategy: data.strategies?.[0] || '',
+                    setupQuality: data.quality?.[0] || '',
+                    mistake: data.mistakes?.[0] || ''
+                }));
+            } else {
+                setForm(prev => ({
+                    ...prev,
+                    strategy: DEFAULT_CONFIG.strategies[0],
+                    setupQuality: DEFAULT_CONFIG.quality[0],
+                    mistake: DEFAULT_CONFIG.mistakes[0]
+                }));
+            }
+        } catch (e) { console.log("Geen settings gevonden"); }
     };
-    fetchRules();
+    fetchSettings();
 
     return () => { unsubTrades(); unsubAccounts(); };
   }, []);
 
-  // --- 2. REGELS BEHEREN (NIEUW) ---
-  const saveRulesToDB = async (updatedRules) => {
-      const user = auth.currentUser;
-      // We slaan alleen ID en Tekst op, niet of ze aangevinkt zijn (dat is per trade)
-      const rulesToSave = updatedRules.map(({id, text}) => ({id, text}));
-      await setDoc(doc(db, "users", user.uid, "settings", "config"), { rules: rulesToSave }, { merge: true });
+  const toggleRule = (rule) => {
+    setForm(prev => {
+      const currentRules = prev.checkedRules || [];
+      const newRules = currentRules.includes(rule) ? currentRules.filter(r => r !== rule) : [...currentRules, rule];
+      return { ...prev, checkedRules: newRules };
+    });
   };
 
-  const handleAddRule = async () => {
-      if(!newRuleText.trim()) return;
-      const newRule = { id: Date.now().toString(), text: newRuleText, checked: false };
-      const updatedRules = [...rules, newRule];
-      setRules(updatedRules);
-      setNewRuleText('');
-      await saveRulesToDB(updatedRules);
+  // 2. HELPER VOOR EDIT MODAL (MULTI SELECT MISTAKES)
+  const toggleEditMistake = (mistakeTag) => {
+      if (!editingTrade) return;
+      
+      // Zorg dat we altijd met een array werken (backward compatibility)
+      let currentMistakes = [];
+      if (Array.isArray(editingTrade.mistake)) {
+          currentMistakes = editingTrade.mistake;
+      } else if (typeof editingTrade.mistake === 'string' && editingTrade.mistake) {
+          currentMistakes = [editingTrade.mistake];
+      }
+
+      // Toggle logica
+      if (currentMistakes.includes(mistakeTag)) {
+          currentMistakes = currentMistakes.filter(m => m !== mistakeTag);
+      } else {
+          currentMistakes = [...currentMistakes, mistakeTag];
+      }
+
+      setEditingTrade({ ...editingTrade, mistake: currentMistakes });
   };
 
-  const handleDeleteRule = async (ruleId) => {
-      const updatedRules = rules.filter(r => r.id !== ruleId);
-      setRules(updatedRules);
-      await saveRulesToDB(updatedRules);
+  // 3. TRADE OPENEN (SIMPLE)
+  const handleSimpleOpen = async (e) => {
+    e.preventDefault();
+    const user = auth.currentUser;
+    if (!user || !form.accountId || !form.pair) return;
+
+    const selectedAcc = accounts.find(a => a.id === form.accountId);
+    const accountName = selectedAcc ? `${selectedAcc.firm} (${selectedAcc.type})` : 'Unknown';
+    const disciplineScore = Math.round(((form.checkedRules || []).length / (config.rules?.length || 1)) * 100);
+
+    // We slaan de mistake op als Array, ook al komt het uit een single dropdown
+    // Dit zorgt voor consistentie met de Edit Modal
+    const initialMistakes = form.mistake ? [form.mistake] : [];
+
+    await addDoc(collection(db, "users", user.uid, "trades"), {
+      ...form,
+      mistake: initialMistakes, // Opslaan als array
+      checkedRules: form.checkedRules || [],
+      accountName,
+      risk: Number(form.risk),
+      disciplineScore,
+      status: 'OPEN',
+      pnl: 0, rMultiple: 0, isAdvanced: false,
+      emotion: 'Neutral', notes: '',
+      createdAt: new Date()
+    });
+    setForm(prev => ({ ...prev, pair: '', risk: '', screenshot: '', checkedRules: [] }));
   };
 
-  // --- 3. OVERIGE LOGICA ---
-  const handleToggleRule = (id) => {
-    setRules(rules.map(r => r.id === id ? { ...r, checked: !r.checked } : r));
+  // 4. TRADE OPENEN (PRO)
+  const handleAdvancedSubmit = async (proData) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    
+    // Zorg ook hier dat mistake een array is
+    const mistakeArray = Array.isArray(proData.mistake) ? proData.mistake : (proData.mistake ? [proData.mistake] : []);
+
+    await addDoc(collection(db, "users", user.uid, "trades"), {
+      ...proData,
+      mistake: mistakeArray,
+      setupQuality: config.quality?.[0] || 'A', 
+      emotion: 'Neutral', notes: '',
+      createdAt: new Date()
+    });
   };
 
-  const handleAddTrade = async () => {
-    if (!form.ticker || !form.risk || form.strategy === '-') return alert("Vul alles in!");
-    if (!selectedAccount) return alert("Selecteer eerst een account.");
-
-    try {
-        const user = auth.currentUser;
-        const score = (rules.filter(r => r.checked).length / rules.length) * 100;
-
-        await addDoc(collection(db, "users", user.uid, "trades"), {
-            accountId: selectedAccount,
-            date: form.date,
-            ticker: form.ticker.toUpperCase(),
-            risk: parseFloat(form.risk),
-            strategy: form.strategy,
-            screenshot: form.screenshot,
-            status: 'OPEN',
-            result: 0,
-            score: isNaN(score) ? 0 : score, // Voorkom NaN als er geen regels zijn
-            createdAt: new Date()
-        });
-        setForm({ ...form, ticker: '', risk: '', strategy: '-', screenshot: '' });
-        setRules(rules.map(r => ({ ...r, checked: false })));
-    } catch (error) { console.error("Error:", error); }
+  // 5. UPDATE & CLOSE
+  const handleCloseTrade = async (e) => {
+    e.preventDefault();
+    if (!closingTrade) return;
+    const pnl = Number(closePnl);
+    const risk = closingTrade.risk || 1;
+    await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
+        status: 'CLOSED', pnl: pnl, rMultiple: Math.round((pnl / risk) * 100) / 100
+    });
+    setClosingTrade(null); setClosePnl('');
   };
 
-  const handleDelete = async (id) => {
-      if(confirm("Trade verwijderen?")) await deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", id));
+  const handleUpdateTrade = async (e) => {
+    e.preventDefault();
+    if (!editingTrade) return;
+    const risk = Number(editingTrade.risk) || 1;
+    const pnl = Number(editingTrade.pnl);
+    
+    await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
+        ...editingTrade, 
+        risk, pnl, 
+        rMultiple: Math.round((pnl / risk) * 100) / 100
+    });
+    setEditingTrade(null);
   };
 
-  const handleFinalizeTrade = async () => {
-      if(!pnlInput) return alert("Vul een bedrag in!");
-      const pnl = parseFloat(pnlInput);
-      const risk = closeModal.risk;
-      const rResult = risk !== 0 ? parseFloat((pnl / risk).toFixed(2)) : 0;
-
-      try {
-          const user = auth.currentUser;
-          const tradeRef = doc(db, "users", user.uid, "trades", closeModal.tradeId);
-          await updateDoc(tradeRef, { status: 'CLOSED', result: rResult, pnl: pnl });
-
-          if (closeModal.accountId) {
-              const accountRef = doc(db, "users", user.uid, "accounts", closeModal.accountId);
-              const accountSnap = await getDoc(accountRef);
-              if (accountSnap.exists()) {
-                  await updateDoc(accountRef, { balance: accountSnap.data().balance + pnl });
-              }
-          }
-          setCloseModal({ isOpen: false, tradeId: null, risk: 0, accountId: null });
-      } catch (error) { console.error("Fout bij sluiten:", error); }
-  };
+  const handleDelete = async (id, e) => { e.stopPropagation(); if (confirm('Trade verwijderen?')) await deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", id)); };
 
   return (
-    <div className="tradelab-container">
-        {/* HEADER & ACCOUNT */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <h1>Trade Lab</h1>
-            <select style={{ width: 250, fontWeight: 'bold', color: 'var(--primary)' }} value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
-                {accounts.length === 0 && <option value="">Geen accounts gevonden</option>}
-                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm} (€{acc.balance.toLocaleString()})</option>)}
-            </select>
+    <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto' }}>
+      
+      {/* HEADER */}
+      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'end' }}>
+        <div><h1 style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>Trade Lab</h1><p style={{ color: 'var(--text-muted)' }}>Operations Center</p></div>
+        <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : 'transparent', padding:'5px 10px', borderRadius:8 }}>
+            <span style={{ fontSize:12, fontWeight:700, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'PRO MODE' : 'SIMPLE MODE'}</span>
+            {isProMode ? <ToggleRight size={32} weight="fill" color="#007AFF" /> : <ToggleLeft size={32} color="#86868B" />}
         </div>
+      </div>
 
-        {/* INVOER CARD */}
-        <div className="card" style={{ borderLeft: '4px solid var(--accent)' }}>
-            <div className="grid-3">
-                <div><label className="input-label">DATUM</label><input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div>
-                <div><label className="input-label">TICKER</label><input type="text" placeholder="EURUSD" value={form.ticker} onChange={e => setForm({...form, ticker: e.target.value.toUpperCase()})} /></div>
-                <div><label className="input-label">RISK (€)</label><input type="number" placeholder="250" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} /></div>
-            </div>
-            <div className="grid-2" style={{ marginBottom: 20 }}>
-                <div>
-                    <label className="input-label">STRATEGIE</label>
-                    <select value={form.strategy} onChange={e => setForm({...form, strategy: e.target.value})}>
-                        <option value="-">Kies strategie...</option>
-                        <option value="Pullback">Pullback</option>
-                        <option value="Breakout">Breakout</option>
-                        <option value="Reversal">Reversal</option>
-                    </select>
-                </div>
-                <div><label className="input-label">SCREENSHOT</label><input type="url" placeholder="https://..." value={form.screenshot} onChange={e => setForm({...form, screenshot: e.target.value})} /></div>
-            </div>
-            
-            {/* REGELS SECTION (VERNIEUWD) */}
-            <div style={{ background: '#f8fafc', padding: 15, borderRadius: 8, border: '1px solid var(--border)', marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.8rem', letterSpacing: 1 }}>JOUW REGELS</div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setIsEditingRules(!isEditingRules)}>
-                        <Gear size={16} /> {isEditingRules ? 'Klaar' : 'Aanpassen'}
-                    </button>
-                </div>
-
-                {rules.map(rule => (
-                    <div key={rule.id} style={{ display: 'flex', alignItems: 'center', marginBottom: 5 }}>
-                        {isEditingRules ? (
-                            // EDIT MODUS: Toon prullenbak
-                            <>
-                                <button onClick={() => handleDeleteRule(rule.id)} style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer', marginRight: 10 }}>
-                                    <Trash size={16} />
-                                </button>
-                                <span>{rule.text}</span>
-                            </>
-                        ) : (
-                            // CHECK MODUS: Toon checkbox
-                            <label className="checklist-item" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '100%' }}>
-                                <input type="checkbox" checked={rule.checked} onChange={() => handleToggleRule(rule.id)} style={{ width: 'auto', marginRight: 10 }} /> 
-                                {rule.text}
-                            </label>
-                        )}
+      {/* INPUT PANEL */}
+      <div style={{ marginBottom: 40 }}>
+          {isProMode ? (
+              <AdvancedJournalForm onSubmit={handleAdvancedSubmit} onCancel={() => setIsProMode(false)} />
+          ) : (
+              <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: 25 }}>
+                <form onSubmit={handleSimpleOpen}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 30 }}>
+                        {/* LINKER KOLOM */}
+                        <div>
+                            <div className="label-xs" style={{ marginBottom: 15, color: '#007AFF' }}>TRADE SETUP</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Datum</label><input type="date" className="apple-input" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required /></div>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Account</label><select className="apple-input" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required><option value="">Kies...</option>{accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}</select></div>
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:15, marginBottom:15 }}>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Ticker</label><input className="apple-input" placeholder="EURUSD" value={form.pair} onChange={e => setForm({...form, pair: e.target.value})} required /></div>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Richting</label><div style={{ display:'flex', height: 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}><button type="button" onClick={() => setForm({...form, direction: 'LONG'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', background: form.direction === 'LONG' ? 'white' : 'transparent', color: form.direction === 'LONG' ? '#30D158' : '#86868B' }}>LONG</button><button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button></div></div>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Risk (€)</label><input type="number" className="apple-input" placeholder="100" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required /></div>
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
+                                <div className="input-group" style={{marginBottom:0}}>
+                                    <label className="input-label">Setup Quality</label>
+                                    <select className="apple-input" value={form.setupQuality} onChange={e => setForm({...form, setupQuality: e.target.value})}>{(config.quality || []).map(q => <option key={q} value={q}>{q}</option>)}</select>
+                                </div>
+                                <div className="input-group" style={{marginBottom:0}}>
+                                    <label className="input-label">Initial Mistake</label>
+                                    <select className="apple-input" value={form.mistake} onChange={e => setForm({...form, mistake: e.target.value})}>{(config.mistakes || []).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                                </div>
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15 }}>
+                                 <div className="input-group" style={{marginBottom:0}}><label className="input-label">Strategie</label><select className="apple-input" value={form.strategy} onChange={e => setForm({...form, strategy: e.target.value})}>{(config.strategies || []).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                 <div className="input-group" style={{marginBottom:0}}><label className="input-label">Screenshot</label><input className="apple-input" placeholder="URL" value={form.screenshot} onChange={e => setForm({...form, screenshot: e.target.value})} /></div>
+                            </div>
+                        </div>
+                        {/* RECHTER KOLOM */}
+                        <div style={{ background: '#F9F9F9', borderRadius: 12, padding: 20, display:'flex', flexDirection:'column' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15 }}>
+                                <div className="label-xs" style={{ marginBottom:0, color:'#FF3B30' }}>CHECK JE REGELS</div>
+                                <div style={{ fontSize:12, fontWeight:700, color: '#1D1D1F' }}>Score: {Math.round(((form.checkedRules || []).length / (config.rules || []).length) * 100)}%</div>
+                            </div>
+                            <div style={{ display:'flex', flexDirection:'column', gap: 10, flex:1 }}>
+                                {(config.rules || []).map((rule, idx) => {
+                                    const isChecked = (form.checkedRules || []).includes(rule);
+                                    return (
+                                        <label key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, cursor:'pointer' }}>
+                                            <div style={{ width:16, height:16, borderRadius:4, border:'1px solid #C7C7CC', background: isChecked ? '#007AFF' : 'white', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>{isChecked && <CheckSquare weight="fill" size={14} />}</div>
+                                            <input type="checkbox" checked={isChecked} onChange={() => toggleRule(rule)} style={{ display:'none' }} />{rule}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            <button type="submit" className="btn-primary" style={{ width:'100%', marginTop: 20 }}>EXECUTE TRADE</button>
+                        </div>
                     </div>
-                ))}
+                </form>
+              </div>
+          )}
+      </div>
 
-                {/* NIEUWE REGEL TOEVOEGEN */}
-                {isEditingRules && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 10, borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
-                        <input type="text" placeholder="Nieuwe regel..." value={newRuleText} onChange={e => setNewRuleText(e.target.value)} style={{ marginBottom: 0 }} />
-                        <button className="btn btn-primary btn-sm" onClick={handleAddRule}><Plus size={16} /></button>
-                    </div>
-                )}
-            </div>
-            <button className="btn btn-primary" onClick={handleAddTrade}><PlusCircle size={20} /> Log Trade</button>
-        </div>
-
-        {/* TABEL (Onveranderd) */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table>
-                <thead>
-                    <tr><th>Datum</th><th>Ticker</th><th>Score</th><th>Risk</th><th>R</th><th>P&L</th><th>Status</th><th></th></tr>
-                </thead>
+      {/* LOGBOEK (TABEL) */}
+      <div className="bento-card" style={{ padding: 0, overflow: 'hidden', minHeight: 400 }}>
+         <div className="table-container">
+            <table className="apple-table">
+                <thead><tr><th style={{width:90}}>Datum</th><th>Info</th><th>Quality</th><th>Status</th><th>Result</th><th></th></tr></thead>
                 <tbody>
-                    {trades.map(trade => (
-                        <tr key={trade.id}>
-                            <td>{trade.date}</td>
-                            <td><span style={{ fontWeight: 600 }}>{trade.ticker}</span><div style={{fontSize:'0.7em', color:'gray'}}>{trade.strategy}</div></td>
-                            <td><span className={`score-badge ${trade.score >= 90 ? 'score-good' : 'score-bad'}`}>{trade.score.toFixed(0)}%</span></td>
-                            <td>€{trade.risk}</td>
-                            <td>{trade.result}R</td>
-                            <td className="money-display" style={{ color: trade.pnl > 0 ? 'var(--success)' : (trade.pnl < 0 ? 'var(--danger)' : 'inherit') }}>
-                                {trade.status === 'CLOSED' ? `€${trade.pnl}` : '-'}
-                            </td>
-                            <td><span className={`badge ${trade.status === 'OPEN' ? 'badge-blue' : 'badge-gray'}`}>{trade.status}</span></td>
-                            <td>
-                                {trade.status === 'OPEN' && <button className="btn btn-primary btn-sm" onClick={() => setCloseModal({isOpen:true, tradeId:trade.id, risk:trade.risk, accountId:trade.accountId})}>Sluiten</button>}
-                                <Trash size={18} className="row-action" onClick={() => handleDelete(trade.id)} style={{marginLeft: 10}}/>
-                            </td>
-                        </tr>
-                    ))}
+                    {trades.map(trade => {
+                        // Display Mistakes (Array handling)
+                        let mistakeDisplay = trade.mistake;
+                        if(Array.isArray(trade.mistake)) mistakeDisplay = trade.mistake.filter(m => !m.includes('None')).join(", ");
+                        else if(trade.mistake && trade.mistake.includes('None')) mistakeDisplay = '';
+
+                        return (
+                            <tr key={trade.id} onClick={() => setEditingTrade(trade)} className="hover-row" style={{ cursor:'pointer', opacity: trade.status==='CLOSED'?0.9:1 }}>
+                                <td style={{ fontSize:12, color:'var(--text-muted)' }}>{new Date(trade.date).toLocaleDateString()}</td>
+                                <td>
+                                    <div style={{ fontWeight:600 }}>{trade.pair} <span style={{fontSize:10, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span></div>
+                                    <div style={{ fontSize:11, color:'var(--text-muted)' }}>{trade.strategy}</div>
+                                </td>
+                                <td>
+                                    <div style={{ fontSize:11, fontWeight:600, color:'#1D1D1F' }}>{trade.setupQuality}</div>
+                                    {mistakeDisplay && <div style={{ fontSize:10, color:'#FF3B30', maxWidth:150, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>⚠️ {mistakeDisplay}</div>}
+                                </td>
+                                <td>{trade.status==='OPEN' ? <span className="badge badge-open">OPEN</span> : <span style={{ fontSize:11, color:'var(--text-muted)' }}>CLOSED</span>}</td>
+                                <td>{trade.status==='OPEN' ? <button onClick={(e)=>{e.stopPropagation();setClosingTrade(trade)}} style={{ background:'#007AFF', color:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11 }}>SLUIT</button> : <div style={{ fontWeight:700, color: trade.pnl>=0?'#30D158':'#FF3B30' }}>{trade.pnl>0?'+':''}€{trade.pnl}</div>}</td>
+                                <td><button onClick={(e)=>handleDelete(trade.id, e)} style={{ border:'none', background:'none', color:'#ccc' }}><Trash size={16}/></button></td>
+                            </tr>
+                        )
+                    })}
                 </tbody>
             </table>
-        </div>
-        
-        {/* MODAL */}
-        {closeModal.isOpen && (
-            <div className="modal-overlay">
-                <div className="modal">
-                    <h2>Resultaat</h2>
-                    <label>P&L in Euro's</label>
-                    <input type="number" autoFocus value={pnlInput} onChange={e => setPnlInput(e.target.value)} style={{fontSize:'1.5rem', textAlign:'center'}} />
-                    <button className="btn btn-primary" style={{width:'100%', marginTop:10}} onClick={handleFinalizeTrade}>Opslaan</button>
-                    <button className="btn btn-ghost" style={{width:'100%', marginTop:5}} onClick={() => setCloseModal({isOpen:false, tradeId:null})}>Annuleren</button>
-                </div>
+         </div>
+      </div>
+
+      {/* MODAL 1: SNEL SLUITEN */}
+      {closingTrade && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(2px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+            <div className="bento-card" style={{ width: 320, padding: 30 }}>
+                <div style={{ textAlign:'center', marginBottom:20 }}><h3>{closingTrade.pair}</h3><p style={{color:'gray'}}>Risk: €{closingTrade.risk}</p></div>
+                <form onSubmit={handleCloseTrade}>
+                    <div className="input-group"><label className="input-label">P&L (€)</label><input className="apple-input" type="number" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} required /></div>
+                    <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:20 }}>Bevestig</button>
+                </form>
             </div>
-        )}
+        </div>
+      )}
+
+      {/* MODAL 2: EDIT TRADE (EVALUATIE) */}
+      {editingTrade && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100 }}>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 700, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}><h3>Edit Trade & Evaluatie</h3><button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none' }}><X size={24}/></button></div>
+                <form onSubmit={handleUpdateTrade}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                        {/* LINKER KOLOM: DATA */}
+                        <div>
+                            <div className="label-xs" style={{color:'#007AFF'}}>HARDE DATA</div>
+                            <div className="input-group"><label className="input-label">P&L (€)</label><input className="apple-input" type="number" value={editingTrade.pnl} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
+                            
+                            <div className="input-group"><label className="input-label">Setup Quality</label><select className="apple-input" value={editingTrade.setupQuality} onChange={e => setEditingTrade({...editingTrade, setupQuality: e.target.value})}>{(config.quality||[]).map(q=><option key={q} value={q}>{q}</option>)}</select></div>
+                            
+                            {/* --- MULTI-SELECT MISTAKES (HET NIEUWE ONDERDEEL) --- */}
+                            <div className="input-group">
+                                <label className="input-label">Fouten / Evaluatie (Meerdere mogelijk)</label>
+                                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                    {(config.mistakes || []).map(m => {
+                                        // Check of mistake in de lijst zit (support string en array)
+                                        const currentMistakes = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
+                                        const isSelected = currentMistakes.includes(m);
+                                        
+                                        return (
+                                            <button 
+                                                key={m} 
+                                                type="button" 
+                                                onClick={() => toggleEditMistake(m)}
+                                                style={{ 
+                                                    border: isSelected ? '1px solid #FF3B30' : '1px solid #E5E5EA',
+                                                    background: isSelected ? 'rgba(255, 59, 48, 0.1)' : 'white',
+                                                    color: isSelected ? '#FF3B30' : '#1D1D1F',
+                                                    padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {m}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* RECHTER KOLOM: PSYCHOLOGIE */}
+                        <div>
+                            <div className="label-xs" style={{color:'#FF9F0A'}}>PSYCHOLOGY</div>
+                            <div className="input-group"><label className="input-label">Emotion</label><div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>{EMOTIONS.map(em=><div key={em.label} onClick={()=>setEditingTrade({...editingTrade, emotion:em.label})} style={{border:editingTrade.emotion===em.label?`2px solid ${em.color}`:'1px solid #E5E5EA', padding:6, borderRadius:6, cursor:'pointer', fontSize:11}}>{em.label}</div>)}</div></div>
+                            <div className="input-group"><label className="input-label">Notes</label><textarea className="apple-input" rows={4} value={editingTrade.notes} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} /></div>
+                        </div>
+                    </div>
+                    <div style={{ marginTop:20, textAlign:'right' }}><button type="submit" className="btn-primary">Opslaan</button></div>
+                </form>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
