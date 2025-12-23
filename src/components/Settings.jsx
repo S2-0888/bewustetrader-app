@@ -5,66 +5,12 @@ import { User, CreditCard, Faders, Plus, X, FloppyDisk, ArrowCounterClockwise, S
 
 // --- DEFAULTS ---
 const DEFAULT_CONFIG = {
-    strategies: [
-        // --- CLASSIC ---
-        "Trend Continuation",
-        "Pullback / Retracement",
-        "Breakout",
-        "Reversal (Key Level)",
-        "Supply & Demand",
-        
-        // --- SMC / ICT ---
-        "Liquidity Sweep (SFP)",
-        "Fair Value Gap (FVG)",
-        "Silver Bullet (Time Based)",
-        "Orderblock Entry",
-        
-        // --- SPECIFIEK ---
-        "Opening Range Breakout",
-        "Asian Range Fade",
-        "News Fade"
-    ],
-    rules: [
-        // --- RISK MANAGEMENT (Harde Cijfers) ---
-        "Max 1% Risico per trade", 
-        "Minimaal 1:2 Risk/Reward", 
-        "Stoploss fysiek geplaatst", 
-        "Max Daily Loss niet bereikt",
-        
-        // --- EXECUTION (Het Proces) ---
-        "Wachten op Candle Close", 
-        "Geen High Impact News (<30m)", 
-        "Aligned met HTF Trend", 
-        "Binnen Trading Sessie (Lon/NY)",
-        
-        // --- PSYCHOLOGIE (Je Hoofd) ---
-        "Clean Headspace (Geen Tilt)"
-    ],
-    mistakes: [
-        "None (Perfect Execution)", 
-        // --- ENTRY FOUTEN ---
-        "FOMO Entry", 
-        "Impulsive Entry",
-        "Too Big Size",
-        "No Plan",
-        // --- MANAGEMENT FOUTEN (Jouw Nieuwe Lijst) ---
-        "Stoploss Widening",     // De Doodzonde
-        "Break-Even Too Soon",   // Angst voor verlies
-        "Cutting Winners Early", // Angst dat prijs draait
-        "Target Extension",      // Hebzucht
-        "Adding to Losers",      // Martingale/DCA uit hoop
-        "Micromanagement",       // 1m chart staren
-        "Revenge Execution"      // Direct heropenen
-    ],
-    quality: [
-        "A+ (Perfect)", 
-        "A (Good)", 
-        "B (Average)", 
-        "C (Forced/Bad)"
-    ]
+    strategies: ["Trend Continuation", "Pullback / Retracement", "Breakout", "Reversal (Key Level)", "Supply & Demand", "Liquidity Sweep (SFP)", "Fair Value Gap (FVG)", "Silver Bullet (Time Based)", "Orderblock Entry", "Opening Range Breakout", "Asian Range Fade", "News Fade"],
+    rules: ["Max 1% Risico per trade", "Minimaal 1:2 Risk/Reward", "Stoploss fysiek geplaatst", "Max Daily Loss niet bereikt", "Wachten op Candle Close", "Geen High Impact News (<30m)", "Aligned met HTF Trend", "Binnen Trading Sessie (Lon/NY)", "Clean Headspace (Geen Tilt)"],
+    mistakes: ["None (Perfect Execution)", "FOMO Entry", "Impulsive Entry", "Too Big Size", "No Plan", "Stoploss Widening", "Break-Even Too Soon", "Cutting Winners Early", "Target Extension", "Adding to Losers", "Micromanagement", "Revenge Execution"],
+    quality: ["A+ (Perfect)", "A (Good)", "B (Average)", "C (Forced/Bad)"]
 };
 
-// Categorie definities voor de UI
 const CATEGORIES = [
     { id: 'strategies', label: 'Strategieën', icon: <Strategy size={18}/>, color: '#007AFF', desc: 'Welke setups trade je?' },
     { id: 'rules', label: 'Regels', icon: <CheckCircle size={18}/>, color: '#30D158', desc: 'Discipline checklist items.' },
@@ -80,7 +26,6 @@ export default function Settings() {
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [inputValue, setInputValue] = useState(''); 
 
-  // 1. DATA OPHALEN
   useEffect(() => {
     const fetchSettings = async () => {
         const user = auth.currentUser;
@@ -93,21 +38,16 @@ export default function Settings() {
     fetchSettings();
   }, []);
 
-  // 2. LOGICA
   const addItem = () => {
       const val = inputValue.trim();
-      if (!val) return;
-      if (config[activeConfig]?.includes(val)) return;
-
-      const newList = [...(config[activeConfig] || []), val];
-      setConfig({ ...config, [activeConfig]: newList });
+      if (!val || config[activeConfig]?.includes(val)) return;
+      setConfig({ ...config, [activeConfig]: [...(config[activeConfig] || []), val] });
       setInputValue('');
       setUnsavedChanges(true);
   };
 
   const removeItem = (itemToRemove) => {
-      const newList = config[activeConfig].filter(i => i !== itemToRemove);
-      setConfig({ ...config, [activeConfig]: newList });
+      setConfig({ ...config, [activeConfig]: config[activeConfig].filter(i => i !== itemToRemove) });
       setUnsavedChanges(true);
   };
 
@@ -119,62 +59,63 @@ export default function Settings() {
       alert('Systeem succesvol opgeslagen!');
   };
 
-  const handleResetDefaults = () => {
-      if(confirm("Terug naar standaard instellingen?")) {
-          setConfig(DEFAULT_CONFIG);
-          setUnsavedChanges(true);
-      }
-  };
-
   const currentCat = CATEGORIES.find(c => c.id === activeConfig);
 
   if (loading) return <div style={{ padding:40, color:'#86868B' }}>Laden...</div>;
 
   return (
-    <div style={{ padding: '40px 20px', maxWidth: 1000, margin: '0 auto' }}>
+    <div style={{ padding: '20px', maxWidth: 1000, margin: '0 auto' }}>
       
       {/* HEADER */}
-      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'end' }}>
+      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap: 'wrap', gap: '15px' }}>
         <div>
             <h1 style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>System Architect</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Configureer de kern van je trading business.</p>
+            <p style={{ color: 'var(--text-muted)', margin: '5px 0 0 0' }}>Configureer je trading business.</p>
         </div>
         {unsavedChanges && (
-            <div style={{ background:'#FF3B30', color:'white', padding:'6px 12px', borderRadius:20, fontSize:12, fontWeight:700, animation:'pulse 2s infinite' }}>
+            <div style={{ background:'#FF3B30', color:'white', padding:'6px 12px', borderRadius:20, fontSize:11, fontWeight:700 }}>
                 ⚠️ Niet opgeslagen
             </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 40 }}>
+      {/* RESPONSIVE CONTAINER: Menu links op desktop, boven op mobiel */}
+      <div className="settings-layout">
           
-          {/* HOOFDMENU (Links) */}
-          <div style={{ display:'flex', flexDirection:'column', gap: 5 }}>
-              <MenuButton label="Trading System" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
+          {/* HOOFDMENU */}
+          <div className="settings-sidebar">
+              <MenuButton label="Trading" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
               <MenuButton label="Account" icon={<User size={20}/>} active={activeTab==='account'} onClick={()=>setActiveTab('account')} />
               <MenuButton label="Billing" icon={<CreditCard size={20}/>} active={activeTab==='subscription'} onClick={()=>setActiveTab('subscription')} />
           </div>
 
-          {/* CONTENT AREA (Rechts) */}
-          <div>
-              
+          {/* CONTENT AREA */}
+          <div style={{ flex: 1, minWidth: 0 }}>
               {activeTab === 'trading' && (
-                  <div className="bento-card" style={{ padding: 0, overflow:'hidden', minHeight: 500, display:'flex', flexDirection:'column' }}>
+                  <div className="bento-card" style={{ padding: 0, overflow:'hidden', display:'flex', flexDirection:'column' }}>
                       
-                      {/* 1. TOP BAR: SUB-NAVIGATIE */}
-                      <div style={{ padding: 15, borderBottom: '1px solid #E5E5EA', background:'#F9F9F9', display:'flex', gap:5 }}>
+                      {/* SUB-NAVIGATIE (HORIZONTAAL SCROLLBAAR OP MOBIEL) */}
+                      <div style={{ 
+                        padding: '10px', 
+                        borderBottom: '1px solid #E5E5EA', 
+                        background:'#F9F9F9', 
+                        display:'flex', 
+                        gap:'5px', 
+                        overflowX: 'auto',
+                        WebkitOverflowScrolling: 'touch'
+                      }}>
                           {CATEGORIES.map(cat => (
                               <button 
                                 key={cat.id}
                                 onClick={() => setActiveConfig(cat.id)}
                                 style={{
-                                    flex: 1,
-                                    display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-                                    padding: '10px', borderRadius: 8, border:'none', fontSize:13, fontWeight:600, cursor:'pointer',
+                                    flexShrink: 0,
+                                    display:'flex', alignItems:'center', gap:8,
+                                    padding: '8px 12px', borderRadius: 8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer',
                                     background: activeConfig === cat.id ? 'white' : 'transparent',
                                     color: activeConfig === cat.id ? '#1D1D1F' : '#86868B',
                                     boxShadow: activeConfig === cat.id ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
-                                    transition: 'all 0.2s ease'
+                                    whiteSpace: 'nowrap'
                                 }}
                               >
                                   <span style={{ color: activeConfig === cat.id ? cat.color : 'inherit' }}>{cat.icon}</span>
@@ -183,95 +124,108 @@ export default function Settings() {
                           ))}
                       </div>
 
-                      {/* 2. EDITOR AREA */}
-                      <div style={{ padding: 30, flex:1, display:'flex', flexDirection:'column' }}>
-                          
-                          {/* Titel */}
-                          <div style={{ marginBottom: 25 }}>
-                              <h3 style={{ margin:0, fontSize:18, display:'flex', alignItems:'center', gap:10 }}>
-                                  <span style={{ color: currentCat.color }}>{currentCat.icon}</span> 
+                      {/* EDITOR AREA */}
+                      <div style={{ padding: '20px', flex:1, display:'flex', flexDirection:'column' }}>
+                          <div style={{ marginBottom: 20 }}>
+                              <h3 style={{ margin:0, fontSize:17, display:'flex', alignItems:'center', gap:10 }}>
                                   Beheer {currentCat.label}
                               </h3>
-                              <p style={{ margin:'5px 0 0 0', color:'#86868B', fontSize:13 }}>{currentCat.desc}</p>
+                              <p style={{ margin:'4px 0 0 0', color:'#86868B', fontSize:12 }}>{currentCat.desc}</p>
                           </div>
 
-                          {/* De Lijst (Tags) */}
-                          <div style={{ flex:1, alignContent:'flex-start', display:'flex', flexWrap:'wrap', gap:10, marginBottom:20 }}>
+                          {/* Tags lijst */}
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:20 }}>
                               {(config[activeConfig] || []).map((item, idx) => (
                                   <div key={idx} style={{ 
-                                      display:'flex', alignItems:'center', gap:8, 
-                                      padding:'8px 14px', borderRadius:20, 
+                                      display:'flex', alignItems:'center', gap:6, 
+                                      padding:'6px 12px', borderRadius:15, 
                                       background:'white', border:'1px solid #E5E5EA', 
-                                      fontSize:13, fontWeight:500, color:'#1D1D1F',
-                                      boxShadow:'0 1px 2px rgba(0,0,0,0.02)'
+                                      fontSize:12, fontWeight:500
                                   }}>
                                       {item}
-                                      <button onClick={() => removeItem(item)} style={{ border:'none', background:'#E5E5EA', borderRadius:'50%', width:18, height:18, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#86868B' }}>
-                                          <X size={10} weight="bold"/>
+                                      <button onClick={() => removeItem(item)} style={{ border:'none', background:'none', cursor:'pointer', color:'#86868B', padding:0, display:'flex' }}>
+                                          <X size={14} weight="bold"/>
                                       </button>
                                   </div>
                               ))}
-                              {(config[activeConfig] || []).length === 0 && <div style={{ color:'#ccc', fontStyle:'italic' }}>Geen items gevonden. Voeg er een toe.</div>}
                           </div>
 
-                          {/* Input Area (HIER ZAT DE FOUT: NU MET KLEUR) */}
+                          {/* Input Area */}
                           <div style={{ marginTop:'auto', paddingTop:20, borderTop:'1px solid #F5F5F7' }}>
-                              <div style={{ display:'flex', gap:10 }}>
+                              <div style={{ display:'flex', gap:8 }}>
                                   <input 
                                       className="apple-input" 
-                                      placeholder={`Nieuwe ${currentCat.label.toLowerCase()} toevoegen...`}
+                                      placeholder="Toevoegen..."
                                       value={inputValue}
-                                      autoFocus
                                       onChange={e => setInputValue(e.target.value)}
                                       onKeyDown={e => e.key === 'Enter' && addItem()}
+                                      style={{ height: '40px' }}
                                   />
                                   <button 
                                     onClick={addItem} 
                                     style={{ 
-                                        width:50, 
-                                        background:'#007AFF', // <--- FIX: BLAUWE ACHTERGROND
-                                        color:'white',        // <--- FIX: WITTE TEKST
+                                        width:40, height:40, background:'#007AFF', color:'white', 
                                         border:'none', borderRadius:10, cursor:'pointer', 
-                                        display:'flex', alignItems:'center', justifyContent:'center',
-                                        boxShadow: '0 2px 5px rgba(0,122,255,0.3)'
+                                        display:'flex', alignItems:'center', justifyContent:'center', flexShrink: 0
                                     }}
                                   >
                                       <Plus size={20} weight="bold"/>
                                   </button>
                               </div>
                           </div>
-
                       </div>
 
-                      {/* 3. FOOTER ACTIONS */}
-                      <div style={{ padding: 15, background:'#F9F9F9', borderTop:'1px solid #E5E5EA', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                          <button onClick={handleResetDefaults} style={{ border:'none', background:'none', color:'#FF3B30', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-                              <ArrowCounterClockwise size={16}/> Reset
-                          </button>
-                          <button onClick={handleSave} className="btn-primary" style={{ padding:'8px 20px', fontSize:13, background: unsavedChanges ? '#007AFF' : '#C7C7CC', pointerEvents: unsavedChanges ? 'auto' : 'none' }}>
+                      {/* FOOTER */}
+                      <div style={{ padding: 15, background:'#F9F9F9', borderTop:'1px solid #E5E5EA', display:'flex', justifyContent:'flex-end' }}>
+                          <button onClick={handleSave} className="btn-primary" style={{ padding:'8px 20px', fontSize:13, background: unsavedChanges ? '#007AFF' : '#C7C7CC', opacity: unsavedChanges ? 1 : 0.6 }}>
                               <FloppyDisk size={16} style={{ marginRight:6 }}/> Opslaan
                           </button>
                       </div>
-
                   </div>
               )}
-
-              {/* PLACEHOLDERS VOOR ANDERE TABS */}
-              {activeTab === 'account' && <div className="bento-card" style={{padding:40,textAlign:'center',color:'#86868B'}}>Account instellingen komen hier.</div>}
-              {activeTab === 'subscription' && <div className="bento-card" style={{padding:40,textAlign:'center',color:'#86868B'}}>Abonnement beheer komt hier.</div>}
-
+              {activeTab !== 'trading' && <div className="bento-card" style={{padding:40, textAlign:'center', color:'#86868B'}}>Binnenkort beschikbaar.</div>}
           </div>
       </div>
+
+      {/* INLINE CSS VOOR RESPONSIVENESS */}
+      <style>{`
+          .settings-layout {
+              display: flex;
+              gap: 30px;
+          }
+          .settings-sidebar {
+              width: 220px;
+              display: flex;
+              flex-direction: column;
+              gap: 5px;
+          }
+          @media (max-width: 768px) {
+              .settings-layout {
+                  flex-direction: column;
+                  gap: 20px;
+              }
+              .settings-sidebar {
+                  width: 100%;
+                  flex-direction: row;
+                  overflow-x: auto;
+                  padding-bottom: 10px;
+              }
+              .settings-sidebar button {
+                  white-space: nowrap;
+                  padding: 10px 15px;
+              }
+          }
+      `}</style>
     </div>
   );
 }
 
 const MenuButton = ({ label, icon, active, onClick }) => (
     <button onClick={onClick} style={{ 
-        display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderRadius:10, border:'none', cursor:'pointer',
+        display:'flex', alignItems:'center', gap:10, padding:'12px 16px', borderRadius:10, border:'none', cursor:'pointer',
         background: active ? 'white' : 'transparent', color: active ? '#1D1D1F' : '#86868B', fontWeight: active ? 700 : 500,
-        boxShadow: active ? '0 2px 8px rgba(0,0,0,0.05)' : 'none', textAlign:'left', fontSize:14, transition:'all 0.2s', width: '100%'
+        boxShadow: active ? '0 2px 8px rgba(0,0,0,0.05)' : 'none', textAlign:'left', fontSize:14, transition:'all 0.2s'
     }}>
-        {icon} {label}
+        {icon} <span className="menu-label">{label}</span>
     </button>
 );
