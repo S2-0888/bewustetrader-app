@@ -1,23 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, orderBy, updateDoc, doc, addDoc } from 'firebase/firestore';
-import { TrendUp, Target, CalendarBlank, Wallet, Eye, EyeSlash, Scales, Medal, Trophy, WarningOctagon, CircleNotch } from '@phosphor-icons/react';
+import { 
+  TrendUp, Target, CalendarBlank, Wallet, Eye, EyeSlash, 
+  Scales, Medal, Trophy, WarningOctagon, CircleNotch, 
+  CheckCircle, ChartPie, Warning, Crown
+} from '@phosphor-icons/react';
 
 export default function Dashboard() {
   const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [userProfile, setUserProfile] = useState(null);
   const [timeRange, setTimeRange] = useState('ALL'); 
   const [showMoney, setShowMoney] = useState(false);
-
-  // STATE VOOR PROMOTIE POP-UP
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [promoteAccount, setPromoteAccount] = useState(null); 
   const [nextPhaseForm, setNextPhaseForm] = useState({ firm: '', size: '', type: '2-Step', stage: 'Phase 2' });
-  const [isSubmitting, setIsSubmitting] = useState(false); // <--- NIEUW: Voorkomt dubbel klikken
 
-  // 1. DATA OPHALEN
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
+
+    // DEBUG CHECK: Print je UID in de console zodat je kunt matchen in Firestore
+    console.log("Jouw UID voor Firestore document naam:", user.uid);
+
+    const unsubUser = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        console.log("DATA BINNEN:", docSnap.data());
+        setUserProfile(docSnap.data());
+      } else {
+        console.log("GEEN DOCUMENT: Maak in collectie 'users' een document met naam:", user.uid);
+      }
+    });
 
     const qTrades = query(collection(db, "users", user.uid, "trades"), orderBy("date", "desc"));
     const unsubTrades = onSnapshot(qTrades, (snap) => {
@@ -29,10 +50,9 @@ export default function Dashboard() {
       setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    return () => { unsubTrades(); unsubAccounts(); };
+    return () => { unsubUser(); unsubTrades(); unsubAccounts(); };
   }, []);
 
-  // --- FILTER LOGICA ---
   const getFilteredTrades = () => {
     if (timeRange === 'ALL') return trades;
     const now = new Date();
@@ -46,26 +66,24 @@ export default function Dashboard() {
   const filteredTrades = getFilteredTrades();
   const closedTrades = filteredTrades.filter(t => t.status === 'CLOSED');
 
-  // --- KPI BEREKENINGEN ---
-  const totalR = closedTrades.reduce((sum, t) => sum + (Number(t.rMultiple) || 0), 0);
-  const totalScore = closedTrades.reduce((sum, t) => sum + (Number(t.disciplineScore) || 0), 0);
+  const totalR = (closedTrades || []).reduce((sum, t) => sum + (Number(t.rMultiple) || 0), 0);
+  const totalScore = (closedTrades || []).reduce((sum, t) => sum + (Number(t.disciplineScore) || 0), 0);
   const avgDiscipline = closedTrades.length > 0 ? Math.round(totalScore / closedTrades.length) : 0;
+  const wins = closedTrades.filter(t => t.pnl > 0).length;
+  const winrate = closedTrades.length > 0 ? Math.round((wins / closedTrades.length) * 100) : 0;
 
   const winningTrades = closedTrades.filter(t => t.pnl > 0);
   const losingTrades = closedTrades.filter(t => t.pnl < 0);
-  const wins = winningTrades.length;
-  const winrate = closedTrades.length > 0 ? Math.round((wins / closedTrades.length) * 100) : 0;
-
   const avgWin = winningTrades.length > 0 ? winningTrades.reduce((sum, t) => sum + t.pnl, 0) / winningTrades.length : 0;
   const avgLoss = losingTrades.length > 0 ? Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0) / losingTrades.length) : 0;
   const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : (avgWin > 0 ? '∞' : '0.00');
 
   const activeAccounts = accounts.filter(acc => acc.status === 'Active');
-  const fundedCount = activeAccounts.filter(acc => acc.stage === 'Funded').length;
 
-  const generateCalendarStrip = () => {
+  const calendarStrip = (() => {
     const days = [];
-    for (let i = 13; i >= 0; i--) {
+    const count = isMobile ? 7 : 14;
+    for (let i = count - 1; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
@@ -74,100 +92,82 @@ export default function Dashboard() {
         days.push({ date: dateStr, dayNum: d.getDate(), val: dayR, hasTrades: dayTrades.length > 0 });
     }
     return days;
-  };
-  const calendarStrip = generateCalendarStrip();
+  })();
 
   const money = (amount) => {
-      if (showMoney) return `€${Math.round(amount).toLocaleString()}`;
-      return '****';
+      if (showMoney) return `€${Math.round(amount || 0).toLocaleString('nl-NL')}`;
+      return '••••';
   };
-
-  // --- ACTIES: DE GAME LOOP ---
 
   const openPromoteModal = (account) => {
       setPromoteAccount(account);
       let nextStage = 'Funded';
       if (account.stage === 'Phase 1') nextStage = 'Phase 2';
-      
-      setNextPhaseForm({
-          firm: account.firm,
-          size: account.balance,
-          type: account.type,
-          stage: nextStage
-      });
+      setNextPhaseForm({ firm: account.firm || '', size: account.balance || 0, type: account.type || '', stage: nextStage });
   };
 
-  // DE UPDATE: PROMOTIE MET LOADING STATE & AUTO-CLOSE
   const handlePromoteConfirm = async (e) => {
       e.preventDefault();
       const user = auth.currentUser;
-      if (!user || !promoteAccount || isSubmitting) return; // Stop als al bezig
-
-      setIsSubmitting(true); // 1. Start laden
-
+      if (!user || !promoteAccount || isSubmitting) return;
+      setIsSubmitting(true);
       try {
-          // A. Oud account op 'Passed' zetten (Verdwijnt uit dashboard)
-          await updateDoc(doc(db, "users", user.uid, "accounts", promoteAccount.id), {
-              status: 'Passed',
-              archivedDate: new Date().toISOString()
-          });
-
-          // B. Nieuw account aanmaken
+          await updateDoc(doc(db, "users", user.uid, "accounts", promoteAccount.id), { status: 'Passed', archivedDate: new Date().toISOString() });
           await addDoc(collection(db, "users", user.uid, "accounts"), {
-              firm: nextPhaseForm.firm,
-              type: nextPhaseForm.type,
+              ...nextPhaseForm,
               balance: Number(nextPhaseForm.size),
               startBalance: Number(nextPhaseForm.size), 
-              stage: nextPhaseForm.stage,
               purchaseDate: new Date().toISOString().split('T')[0],
               status: 'Active',
               currency: promoteAccount.currency || 'EUR',
-              cost: 0, 
-              originalCost: 0,
-              profitTarget: promoteAccount.profitTarget, 
-              maxDrawdown: promoteAccount.maxDrawdown,
-              accountNumber: '',
+              cost: 0, originalCost: 0,
+              profitTarget: promoteAccount.profitTarget || 0, 
+              maxDrawdown: promoteAccount.maxDrawdown || 0,
               createdAt: new Date()
           });
-
-          // C. Resetten en sluiten
           setPromoteAccount(null); 
-          // alert("Gefeliciteerd! Level Up! 🚀"); // Alert mag weg voor betere flow, of laat staan als je feedback wilt.
-      } catch (error) {
-          console.error("Fout bij promotie:", error);
-          alert("Er ging iets mis. Probeer opnieuw.");
-      } finally {
-          setIsSubmitting(false); // 4. Stop laden
-      }
+      } catch (error) { console.error(error); } finally { setIsSubmitting(false); }
   };
 
   const handleBreach = async (account) => {
-      if (confirm(`Weet je zeker dat account ${account.firm} de drawdown heeft geraakt? Het wordt gearchiveerd.`)) {
-          await updateDoc(doc(db, "users", auth.currentUser.uid, "accounts", account.id), {
-              status: 'Breached',
-              stage: 'Breached',
-              archivedDate: new Date().toISOString()
-          });
+      if (window.confirm(`Account ${account.firm} archiveren?`)) {
+          await updateDoc(doc(db, "users", auth.currentUser.uid, "accounts", account.id), { status: 'Breached', archivedDate: new Date().toISOString() });
       }
   };
 
   return (
-    <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
-      {/* HEADER + CONTROLS */}
-      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'end', flexWrap:'wrap', gap:20 }}>
+      {/* HEADER MET FOUNDER BADGE */}
+      <div style={{ marginBottom: isMobile ? 20 : 30, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:15 }}>
         <div>
-            <h1 style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>Cockpit</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Focus op uitvoering, niet op geld.</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <h1 style={{ fontSize: isMobile ? '26px' : '32px', fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>Cockpit</h1>
+                {/* DYNAMISCHE BADGE CHECK */}
+                {userProfile?.isFounder === true && (
+                    <div style={{ 
+                        display: 'flex', alignItems: 'center', gap: 4, 
+                        background: 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)',
+                        color: 'white', padding: '4px 10px', borderRadius: '30px', 
+                        fontSize: '9px', fontWeight: 800, boxShadow: '0 4px 10px rgba(175, 82, 222, 0.3)',
+                        marginTop: 4
+                    }}>
+                        <Crown size={12} weight="fill" /> FOUNDER 100
+                    </div>
+                )}
+            </div>
+            <p style={{ color: '#86868B', fontSize: isMobile ? '12px' : '15px', marginTop: 4 }}>
+                {userProfile?.isFounder ? "Welcome back, Founder. Master your process." : "Master your process, the money follows."}
+            </p>
         </div>
         
-        <div style={{ display:'flex', gap: 10 }}>
-            <button onClick={() => setShowMoney(!showMoney)} style={{ border: '1px solid #E5E5EA', background: 'white', color: '#86868B', width: 36, height: 36, borderRadius: 10, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center' }} title={showMoney ? "Verberg bedragen" : "Toon bedragen"}>
-                {showMoney ? <EyeSlash size={18}/> : <Eye size={18}/>}
+        <div style={{ display:'flex', gap: 10, width: isMobile ? '100%' : 'auto' }}>
+            <button onClick={() => setShowMoney(!showMoney)} style={{ border: '1px solid #E5E5EA', background: 'white', color: '#1D1D1F', width: 42, height: 42, borderRadius: 12, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {showMoney ? <EyeSlash size={20}/> : <Eye size={20}/>}
             </button>
-            <div style={{ background: '#E5E5EA', padding: 4, borderRadius: 10, display: 'flex', gap: 2 }}>
+            <div style={{ background: 'rgba(0,0,0,0.05)', padding: 4, borderRadius: 12, display: 'flex', gap: 2, flex: 1 }}>
                 {['7D', '30D', 'YTD', 'ALL'].map(range => (
-                    <button key={range} onClick={() => setTimeRange(range)} style={{ border: 'none', background: timeRange === range ? 'white' : 'transparent', color: timeRange === range ? 'black' : '#86868B', padding: '6px 14px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', boxShadow: timeRange === range ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
+                    <button key={range} onClick={() => setTimeRange(range)} style={{ flex: 1, border: 'none', background: timeRange === range ? 'white' : 'transparent', color: 'black', padding: '8px 4px', borderRadius: 9, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
                         {range}
                     </button>
                 ))}
@@ -175,167 +175,155 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* --- GRID 1: KPI WIDGETS --- */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20, marginBottom: 30 }}>
-          <div className="bento-card" style={{ display:'flex', flexDirection:'column', justifyContent:'space-between', minHeight:140 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#86868B', display:'flex', alignItems:'center', gap:6 }}><TrendUp weight="fill"/> NET PERFORMANCE (R)</div>
-              <div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: totalR >= 0 ? '#30D158' : '#FF3B30' }}>{totalR > 0 ? '+' : ''}{totalR.toFixed(1)}R</div>
-                  <div style={{ fontSize:12, color:'#86868B', marginTop:4 }}>Discipline Score: {avgDiscipline}%</div>
-              </div>
-          </div>
-          <div className="bento-card" style={{ display:'flex', flexDirection:'column', justifyContent:'space-between', minHeight:140 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#86868B', display:'flex', alignItems:'center', gap:6 }}><Scales weight="fill"/> WIN/LOSS RATIO</div>
-              <div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: '#1D1D1F' }}>{winLossRatio}</div>
-                  <div style={{ fontSize:12, color:'#86868B', marginTop:4, display:'flex', gap:10 }}>
-                      <span style={{ color:'#30D158' }}>Avg Win: {money(avgWin)}</span>
-                      <span style={{ color:'#FF3B30' }}>Avg Loss: {money(avgLoss)}</span>
+      {/* KPI GRID */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: isMobile ? 12 : 15, marginBottom: 20 }}>
+          <div className="bento-card" style={{ gridColumn: 'span 2', background: '#1D1D1F', color: 'white', minHeight: isMobile ? 130 : 160 }}>
+              <div className="label-xs" style={{ color:'#86868B', display:'flex', alignItems:'center', gap:6 }}><TrendUp weight="fill"/> NET PERFORMANCE</div>
+              <div style={{ marginTop: isMobile ? 10 : 20 }}>
+                  <div style={{ fontSize: isMobile ? 36 : 48, fontWeight: 800, color: totalR >= 0 ? '#30D158' : '#FF453A' }}>{totalR > 0 ? '+' : ''}{totalR.toFixed(1)}R</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 11, color: '#86868B' }}>DISCIPLINE</div>
+                    <div style={{ color: '#30D158', fontWeight: 800, fontSize: 13 }}>{avgDiscipline}%</div>
                   </div>
               </div>
           </div>
-          <div className="bento-card" style={{ display:'flex', flexDirection:'column', justifyContent:'space-between', minHeight:140 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#86868B', display:'flex', alignItems:'center', gap:6 }}><Target weight="fill"/> STRIKE RATE</div>
-              <div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: '#1D1D1F' }}>{winrate}%</div>
-                  <div style={{ fontSize:12, color:'#86868B', marginTop:4 }}>{wins} Wins / {closedTrades.length} Trades</div>
+          <div className="bento-card" style={{ minHeight: isMobile ? 100 : 160, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+              <div className="label-xs"><Target weight="fill"/> STRIKE RATE</div>
+              <div style={{ fontSize: isMobile ? 28 : 36, fontWeight: 800 }}>{winrate}%</div>
+          </div>
+          <div className="bento-card" style={{ minHeight: isMobile ? 100 : 160, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+              <div className="label-xs"><Scales weight="fill"/> PROFIT FACTOR</div>
+              <div style={{ fontSize: isMobile ? 28 : 36, fontWeight: 800 }}>{winLossRatio}</div>
+          </div>
+      </div>
+
+      {/* EDGE & BEHAVIORAL INSIGHTS */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 12 : 20, marginBottom: 30 }}>
+          <div className="bento-card">
+              <div className="label-xs" style={{ color: '#AF52DE' }}>EXIT EFFICIENCY (MFE)</div>
+              <div style={{ marginTop: 10 }}>
+                  {(() => {
+                      const tradesWithMfe = (closedTrades || []).filter(t => t.mfe > 0 && t.pnl > 0);
+                      if (tradesWithMfe.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>No Edge Data.</div>;
+                      const avgEfficiency = tradesWithMfe.reduce((acc, t) => acc + (t.pnl / t.mfe), 0) / tradesWithMfe.length;
+                      const score = Math.round(avgEfficiency * 100);
+                      return (
+                          <>
+                              <div style={{ fontSize: 28, fontWeight: 800 }}>{score}%</div>
+                              <div style={{ width: '100%', height: 6, background: '#F2F2F7', borderRadius: 3, marginTop: 10 }}>
+                                  <div style={{ width: `${score}%`, height: '100%', background: '#AF52DE', borderRadius: 3 }}></div>
+                              </div>
+                              <div style={{ fontSize: 10, color: '#86868B', marginTop: 8 }}>{score > 70 ? 'Perfect Exits' : 'Leaving money on table'}</div>
+                          </>
+                      );
+                  })()}
               </div>
           </div>
-           <div className="bento-card" style={{ background:'#1D1D1F', color:'white', minHeight:140 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#86868B', marginBottom:15, display:'flex', alignItems:'center', gap:6 }}><Wallet weight="fill"/> INVENTORY</div>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'end' }}>
-                  <div>
-                      <div style={{ fontSize:32, fontWeight:700 }}>{activeAccounts.length}</div>
-                      <div style={{ fontSize:12, color:'#86868B' }}>Active Accounts</div>
-                  </div>
-                  {fundedCount > 0 && (
-                      <div style={{ textAlign:'right' }}>
-                          <Medal size={24} color="#FFD60A" weight="fill" style={{ marginBottom:4 }}/>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#FFD60A' }}>{fundedCount} FUNDED</div>
-                      </div>
-                  )}
+
+          <div className="bento-card" style={{ gridColumn: isMobile ? 'span 1' : 'span 2' }}>
+              <div className="label-xs" style={{ color: '#FF3B30' }}>BEHAVIORAL LEAKS (TOP MISTAKES)</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 8, marginTop: 10 }}>
+                  {(() => {
+                      const mistakeCounts = {};
+                      (closedTrades || []).forEach(t => {
+                          const mistakes = Array.isArray(t.mistake) ? t.mistake : [];
+                          mistakes.forEach(m => { if (m && !m.includes("None")) mistakeCounts[m] = (mistakeCounts[m] || 0) + 1; });
+                      });
+                      const sortedMistakes = Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+                      if (sortedMistakes.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>Process is clean. No leaks found!</div>;
+                      return sortedMistakes.map(([name, count]) => (
+                          <div key={name} style={{ background: 'rgba(255, 59, 48, 0.05)', border: '1px solid rgba(255, 59, 48, 0.1)', padding: '8px 12px', borderRadius: 10, flex: 1 }}>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: '#FF3B30' }}>{count}X RECURRENCE</div>
+                              <div style={{ fontSize: 12, fontWeight: 700 }}>{name}</div>
+                          </div>
+                      ));
+                  })()}
               </div>
           </div>
       </div>
 
-      {/* --- GRID 2: CONSISTENCY STRIP --- */}
-      <div className="bento-card" style={{ padding: 20, marginBottom: 30 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#86868B', marginBottom:15, display:'flex', alignItems:'center', gap:6 }}><CalendarBlank weight="fill"/> PROCESS CONSISTENCY (14 DAGEN)</div>
-          <div style={{ display:'flex', gap: 8, overflowX:'auto', paddingBottom: 5 }}>
-              {calendarStrip.map((day, idx) => (
-                  <div key={idx} style={{ textAlign:'center', minWidth: 40 }}>
-                      <div title={`Datum: ${day.date}`} style={{ height: 40, borderRadius: 8, marginBottom: 6, background: !day.hasTrades ? '#F2F2F7' : (day.val > 0 ? '#30D158' : (day.val < 0 ? '#FF3B30' : '#FF9F0A')), display:'flex', alignItems:'center', justifyContent:'center', color: !day.hasTrades ? '#ccc' : 'white', fontWeight:700, fontSize:10 }}>
+      {/* AI COACH ALERT */}
+      {avgDiscipline < 70 && closedTrades.length >= 3 && (
+          <div className="bento-card" style={{ background: 'linear-gradient(90deg, #FF9F0A 0%, #FF3B30 100%)', color: 'white', marginBottom: 20, padding: '15px', border: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Warning weight="fill" size={20} />
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>DISCIPLINE ALERT: Plan execution is low ({avgDiscipline}%). Review your rules before next session.</div>
+              </div>
+          </div>
+      )}
+
+      {/* RECENT PROCESS */}
+      <div className="bento-card" style={{ padding: 15, marginBottom: 20 }}>
+          <div className="label-xs" style={{ marginBottom:10 }}><CalendarBlank weight="fill"/> RECENT PROCESS</div>
+          <div style={{ display:'flex', justifyContent:'space-between', gap: 4 }}>
+              {(calendarStrip || []).map((day, idx) => (
+                  <div key={idx} style={{ flex: 1, textAlign:'center' }}>
+                      <div style={{ height: isMobile ? 30 : 40, borderRadius: 6, background: !day.hasTrades ? '#F2F2F7' : (day.val > 0 ? '#30D158' : '#FF3B30'), color: 'white', fontWeight:800, fontSize: 10, display:'flex', alignItems:'center', justifyContent:'center' }}>
                           {day.hasTrades && (day.val > 0 ? '+' : '-')}
                       </div>
-                      <div style={{ fontSize: 10, color: '#86868B', fontWeight: 600 }}>{day.dayNum}</div>
                   </div>
               ))}
           </div>
       </div>
 
-      {/* --- GRID 3: ACCOUNT GAMIFICATION --- */}
-      <div>
-          <div className="label-xs" style={{ marginBottom: 15 }}>ACTIVE CHALLENGES & ACCOUNTS</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 20 }}>
-              
-              {activeAccounts.map(acc => {
-                  const accTrades = trades.filter(t => t.accountId === acc.id && t.status === 'CLOSED');
-                  const totalAccPnl = accTrades.reduce((sum, t) => sum + t.pnl, 0);
-                  const currentBal = (Number(acc.balance) || 0) + totalAccPnl;
-                  
-                  const target = Number(acc.profitTarget) || 1; 
-                  const progressPct = Math.min(Math.max((totalAccPnl / target) * 100, 0), 100);
-                  const targetHit = totalAccPnl >= target;
-
-                  const maxDD = Number(acc.maxDrawdown) || 1;
-                  const currentDD = Math.max((Number(acc.balance) - currentBal), 0);
-                  const ddPct = Math.min((currentDD / maxDD) * 100, 100);
-                  const isBreached = currentBal <= (Number(acc.balance) - maxDD);
-
-                  const isFunded = acc.stage === 'Funded';
-
-                  return (
-                      <div key={acc.id} className="bento-card" style={{ padding: 25, borderLeft: isFunded ? '4px solid #30D158' : '4px solid #007AFF', position:'relative' }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 20 }}>
-                              <div>
-                                  <div style={{ fontWeight: 800, fontSize: 18 }}>{acc.firm}</div>
-                                  <div style={{ fontSize: 12, color:'#86868B', fontWeight:600 }}>{acc.type} • <span style={{ color: isFunded ? '#30D158' : '#007AFF' }}>{acc.stage}</span></div>
+      {/* ACTIVE ACCOUNTS */}
+      <div className="label-xs" style={{ marginBottom: 10 }}>ACTIVE INVENTORY ({activeAccounts.length})</div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))', gap: 15 }}>
+          {activeAccounts.map(acc => {
+              const accTrades = trades.filter(t => t.accountId === acc.id && t.status === 'CLOSED');
+              const currentBal = (Number(acc.balance) || 0) + accTrades.reduce((sum, t) => sum + t.pnl, 0);
+              const progressPct = Math.min(Math.max(((currentBal - acc.balance) / (acc.profitTarget || 1)) * 100, 0), 100);
+              const ddPct = Math.min((Math.max(acc.balance - currentBal, 0) / (acc.maxDrawdown || 1)) * 100, 100);
+              return (
+                  <div key={acc.id} className="bento-card" style={{ padding: 20 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 15 }}>
+                          <div>
+                              <div style={{ fontWeight: 800, fontSize: 16 }}>{acc.firm}</div>
+                              <div style={{ fontSize: 9, color: '#007AFF', fontWeight: 800 }}>{(acc.stage || 'N/A').toUpperCase()}</div>
+                          </div>
+                          <div style={{ textAlign:'right', fontSize: 18, fontWeight: 800 }}>{money(currentBal)}</div>
+                      </div>
+                      <div style={{ display:'grid', gap:12 }}>
+                          <div>
+                              <div style={{ display:'flex', justifyContent:'space-between', fontSize:9, fontWeight:800, marginBottom:4 }}>
+                                  <span>PROFIT TARGET</span><span>{progressPct.toFixed(1)}%</span>
                               </div>
-                              <div style={{ textAlign:'right' }}>
-                                  <div style={{ fontSize:11, color:'#86868B', fontWeight:700, textTransform:'uppercase' }}>Huidig Saldo</div>
-                                  <div style={{ fontSize:20, fontWeight:700, color: currentBal < acc.balance ? '#FF3B30' : '#1D1D1F' }}>{money(currentBal)}</div>
+                              <div style={{ width:'100%', height:6, background:'#F2F2F7', borderRadius:3, overflow:'hidden' }}>
+                                  <div style={{ width:`${progressPct}%`, height:'100%', background: '#30D158' }}></div>
                               </div>
                           </div>
-
-                          <div style={{ display:'grid', gap:15 }}>
-                              {acc.profitTarget > 0 && !isFunded && (
-                                  <div>
-                                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, fontWeight:700, marginBottom:4 }}>
-                                          <span style={{color:'#86868B'}}>Target: {money(acc.profitTarget)}</span>
-                                          <span style={{color:'#30D158'}}>{progressPct.toFixed(1)}%</span>
-                                      </div>
-                                      <div style={{ width:'100%', height:8, background:'#F2F2F7', borderRadius:4 }}>
-                                          <div style={{ width:`${progressPct}%`, height:'100%', background: '#30D158', borderRadius:4, transition:'width 0.5s' }}></div>
-                                      </div>
-                                  </div>
-                              )}
-                              {acc.maxDrawdown > 0 && (
-                                  <div>
-                                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, fontWeight:700, marginBottom:4 }}>
-                                          <span style={{color:'#86868B'}}>Max DD: {money(acc.maxDrawdown)}</span>
-                                          <span style={{color: ddPct > 80 ? '#FF3B30' : '#FF9F0A'}}>{ddPct.toFixed(1)}% Gebruikt</span>
-                                      </div>
-                                      <div style={{ width:'100%', height:8, background:'#F2F2F7', borderRadius:4 }}>
-                                          <div style={{ width:`${ddPct}%`, height:'100%', background: ddPct > 80 ? '#FF3B30' : '#FF9F0A', borderRadius:4, transition:'width 0.5s' }}></div>
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-
-                          <div style={{ marginTop: 25, borderTop:'1px solid #F5F5F7', paddingTop:15 }}>
-                              {targetHit && !isBreached && (
-                                  <button onClick={() => openPromoteModal(acc)} className="btn-primary" style={{ width:'100%', background:'linear-gradient(135deg, #FFD60A 0%, #FF9F0A 100%)', color:'black', border:'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                                      <Trophy size={18} weight="fill"/> PROMOTE ACCOUNT
-                                  </button>
-                              )}
-                              {isBreached && (
-                                  <div style={{ textAlign:'center' }}>
-                                      <div style={{ color:'#FF3B30', fontWeight:800, fontSize:14, marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}><WarningOctagon size={20} weight="fill"/> DRAWDOWN BREACHED</div>
-                                      <button onClick={() => handleBreach(acc)} style={{ width:'100%', background:'#FF3B30', color:'white', border:'none', padding:'10px', borderRadius:8, fontWeight:700, cursor:'pointer' }}>Bevestig & Archiveer</button>
-                                  </div>
-                              )}
-                              {!targetHit && !isBreached && <div style={{ textAlign:'center', fontSize:12, color:'#86868B', fontStyle:'italic' }}>Keep grinding. Follow your rules.</div>}
+                          <div>
+                              <div style={{ display:'flex', justifyContent:'space-between', fontSize:9, fontWeight:800, marginBottom:4 }}>
+                                  <span>MAX DRAWDOWN</span><span style={{color: ddPct > 80 ? '#FF3B30' : '#FF9F0A'}}>{ddPct.toFixed(1)}%</span>
+                              </div>
+                              <div style={{ width:'100%', height:6, background:'#F2F2F7', borderRadius:3, overflow:'hidden' }}>
+                                  <div style={{ width:`${ddPct}%`, height:'100%', background: ddPct > 80 ? '#FF3B30' : '#FF9F0A' }}></div>
+                              </div>
                           </div>
                       </div>
-                  );
-              })}
-              {activeAccounts.length === 0 && <div style={{ color:'#86868B', fontSize:13 }}>Geen actieve accounts.</div>}
-          </div>
+                      <div style={{ marginTop: 15 }}>
+                          {progressPct >= 100 && <button onClick={() => openPromoteModal(acc)} className="btn-primary" style={{ width:'100%', background:'#007AFF', padding: '10px' }}>LEVEL UP</button>}
+                          {ddPct >= 100 && <button onClick={() => handleBreach(acc)} style={{ width:'100%', background:'#FF3B30', color:'white', border:'none', padding:10, borderRadius:8 }}>BREACHED</button>}
+                      </div>
+                  </div>
+              );
+          })}
       </div>
 
-      {/* --- MODAL: PROMOTIE --- */}
+      {/* MODAL PHASE PASS */}
       {promoteAccount && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(5px)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <div className="bento-card" style={{ width: 400, padding: 30, textAlign:'center' }}>
-                 <div style={{ fontSize:48, marginBottom:10 }}>🏆</div>
-                 <h2 style={{ fontSize:24, fontWeight:800, margin:'0 0 10px 0' }}>Level Up!</h2>
-                 <p style={{ color:'#86868B', marginBottom:20 }}>Je hebt je target op <strong>{promoteAccount.firm}</strong> gehaald.<br/>Tijd om het volgende account te activeren.</p>
-
-                 <form onSubmit={handlePromoteConfirm} style={{ textAlign:'left' }}>
-                     <div className="input-group"><label className="input-label">Nieuwe Fase</label><select className="apple-input" value={nextPhaseForm.stage} onChange={e => setNextPhaseForm({...nextPhaseForm, stage: e.target.value})}><option value="Phase 2">Phase 2</option><option value="Funded">Funded</option></select></div>
-                     <div className="input-group"><label className="input-label">Account Grootte</label><input className="apple-input" type="number" value={nextPhaseForm.size} onChange={e => setNextPhaseForm({...nextPhaseForm, size: e.target.value})} /></div>
-                     
-                     <div style={{ display:'flex', gap:10, marginTop:20 }}>
-                         <button type="button" disabled={isSubmitting} onClick={() => setPromoteAccount(null)} style={{ flex:1, background:'#F2F2F7', border:'none', borderRadius:8, fontWeight:600, cursor:'pointer', opacity: isSubmitting ? 0.5 : 1 }}>Annuleer</button>
-                         <button type="submit" disabled={isSubmitting} style={{ flex:1, background:'#30D158', color:'white', border:'none', borderRadius:8, fontWeight:600, cursor:'pointer', padding:'12px', opacity: isSubmitting ? 0.5 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                             {isSubmitting ? <><CircleNotch className="spin" size={18}/> Bezig...</> : 'Start Nieuwe Fase'}
-                         </button>
-                     </div>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:3000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 360, textAlign:'center' }}>
+                 <div style={{ fontSize: 40 }}>🏆</div>
+                 <h2 style={{ fontWeight: 900, fontSize: 20 }}>Phase Passed!</h2>
+                 <form onSubmit={handlePromoteConfirm} style={{ textAlign:'left', marginTop:15 }}>
+                     <div className="input-group"><label className="input-label">Volgende Fase</label><select className="apple-input" value={nextPhaseForm.stage} onChange={e => setNextPhaseForm({...nextPhaseForm, stage: e.target.value})}><option value="Phase 2">Phase 2</option><option value="Funded">Funded</option></select></div>
+                     <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ width:'100%', marginTop:15 }}>{isSubmitting ? 'Bezig...' : 'Activeer Fase'}</button>
+                     <button type="button" onClick={() => setPromoteAccount(null)} style={{ width:'100%', background:'none', border:'none', marginTop:10, color:'#86868B', fontSize: 12 }}>Sluiten</button>
                  </form>
             </div>
         </div>
       )}
-
     </div>
   );
 }

@@ -4,11 +4,10 @@ import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateD
 import { 
   Trash, X, Wallet, ToggleLeft, ToggleRight, ArrowUpRight, 
   ArrowDownRight, CheckSquare, Smiley, SmileySad, SmileyMeh, 
-  SmileyNervous, Warning 
+  SmileyNervous, Plus, Target, ShieldCheck, ChartLineUp
 } from '@phosphor-icons/react';
 import AdvancedJournalForm from './AdvancedJournalForm';
 
-// --- DEFAULTS ---
 const DEFAULT_CONFIG = {
     strategies: ["Breakout", "Pullback", "Reversal", "Trend Following", "Scalp", "News Trade"],
     rules: ["Max 1% Risico", "Wachten op Candle Close", "Geen impulsieve entry", "Stoploss geplaatst", "Setup in lijn met plan"],
@@ -27,65 +26,32 @@ export default function TradeLab() {
   const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
-
   const [isProMode, setIsProMode] = useState(false);
   const [closingTrade, setClosingTrade] = useState(null); 
   const [editingTrade, setEditingTrade] = useState(null);
   const [closePnl, setClosePnl] = useState('');
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  const [form, setForm] = useState({
-    date: new Date().toISOString().split('T')[0],
-    accountId: '', pair: '', direction: 'LONG', 
-    strategy: '', setupQuality: '', mistake: '', 
-    risk: '', screenshot: '', checkedRules: [] 
-  });
-
-  // 1. DATA OPHALEN
   useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
     const user = auth.currentUser;
     if (!user) return;
-    
-    const qTrades = query(collection(db, "users", user.uid, "trades"), orderBy("date", "desc"));
-    const unsubTrades = onSnapshot(qTrades, (snap) => setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    
-    const qAccounts = query(collection(db, "users", user.uid, "accounts"));
-    const unsubAccounts = onSnapshot(qAccounts, (snap) => {
-      const allAccounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAccounts(allAccounts.filter(acc => acc.status === 'Active')); 
+    const unsubTrades = onSnapshot(query(collection(db, "users", user.uid, "trades"), orderBy("date", "desc")), (snap) => {
+      setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    
-    const fetchSettings = async () => {
-        try {
-            const docRef = doc(db, "users", user.uid, "settings", "tradelab");
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setConfig(data); 
-                setForm(prev => ({
-                    ...prev,
-                    strategy: data.strategies?.[0] || '',
-                    setupQuality: data.quality?.[0] || '',
-                    mistake: data.mistakes?.[0] || ''
-                }));
-            }
-        } catch (e) { console.log("Geen settings gevonden"); }
-    };
-    fetchSettings();
-
-    return () => { unsubTrades(); unsubAccounts(); };
+    const unsubAccounts = onSnapshot(query(collection(db, "users", user.uid, "accounts")), (snap) => {
+      setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(acc => acc.status === 'Active')); 
+    });
+    getDoc(doc(db, "users", user.uid, "settings", "tradelab")).then(docSnap => {
+      if (docSnap.exists()) setConfig(docSnap.data());
+    });
+    return () => { unsubTrades(); unsubAccounts(); window.removeEventListener('resize', handleResize); };
   }, []);
-
-  const toggleRule = (rule) => {
-    setForm(prev => {
-      const currentRules = prev.checkedRules || [];
-      const newRules = currentRules.includes(rule) ? currentRules.filter(r => r !== rule) : [...currentRules, rule];
-      return { ...prev, checkedRules: newRules };
-    });
-  };
 
   const toggleEditMistake = (mistakeTag) => {
       if (!editingTrade) return;
-      let currentMistakes = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
+      let currentMistakes = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : [];
       if (currentMistakes.includes(mistakeTag)) {
           currentMistakes = currentMistakes.filter(m => m !== mistakeTag);
       } else {
@@ -98,36 +64,22 @@ export default function TradeLab() {
     e.preventDefault();
     const user = auth.currentUser;
     if (!user || !form.accountId || !form.pair) return;
-
     const selectedAcc = accounts.find(a => a.id === form.accountId);
-    const accountName = selectedAcc ? `${selectedAcc.firm} (${selectedAcc.type})` : 'Unknown';
     const disciplineScore = Math.round(((form.checkedRules || []).length / (config.rules?.length || 1)) * 100);
 
     await addDoc(collection(db, "users", user.uid, "trades"), {
-      ...form,
-      mistake: form.mistake ? [form.mistake] : [],
-      checkedRules: form.checkedRules || [],
-      accountName,
-      risk: Number(form.risk),
-      disciplineScore,
-      status: 'OPEN',
-      pnl: 0, rMultiple: 0, isAdvanced: false,
-      emotion: 'Neutral', notes: '',
-      createdAt: new Date()
+      ...form, mistake: [], actualExits: [{ price: '', lots: '' }],
+      accountName: selectedAcc ? `${selectedAcc.firm} (${selectedAcc.type})` : 'Unknown',
+      risk: Number(form.risk), disciplineScore, status: 'OPEN',
+      pnl: 0, rMultiple: 0, isAdvanced: false, createdAt: new Date()
     });
-    setForm(prev => ({ ...prev, pair: '', risk: '', screenshot: '', checkedRules: [] }));
+    setForm(prev => ({ ...prev, pair: '', risk: '', checkedRules: [] }));
   };
 
   const handleAdvancedSubmit = async (proData) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const mistakeArray = Array.isArray(proData.mistake) ? proData.mistake : (proData.mistake ? [proData.mistake] : []);
-    await addDoc(collection(db, "users", user.uid, "trades"), {
-      ...proData,
-      mistake: mistakeArray,
-      setupQuality: config.quality?.[0] || 'A', 
-      emotion: 'Neutral', notes: '',
-      createdAt: new Date()
+    await addDoc(collection(db, "users", auth.currentUser.uid, "trades"), {
+        ...proData,
+        actualExits: [{ price: '', lots: '' }] 
     });
     setIsProMode(false);
   };
@@ -150,19 +102,27 @@ export default function TradeLab() {
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
         ...editingTrade, 
         risk, pnl, 
+        mae: Number(editingTrade.mae) || 0,
+        mfe: Number(editingTrade.mfe) || 0,
         rMultiple: Math.round((pnl / risk) * 100) / 100
     });
     setEditingTrade(null);
   };
 
+  const [form, setForm] = useState({
+    date: new Date().toISOString().split('T')[0],
+    accountId: '', pair: '', direction: 'LONG', 
+    strategy: '', setupQuality: '', risk: '', checkedRules: [] 
+  });
+
   return (
-    <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: isMobile ? '20px 15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
       {/* HEADER */}
       <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'end' }}>
-        <div><h1 style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>Trade Lab</h1><p style={{ color: 'var(--text-muted)' }}>Operations Center</p></div>
+        <div><h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0, letterSpacing:'-1px' }}>Trade Lab</h1><p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Operations & Review</p></div>
         <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : 'transparent', padding:'5px 10px', borderRadius:8 }}>
-            <span style={{ fontSize:12, fontWeight:700, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'PRO MODE' : 'SIMPLE MODE'}</span>
+            <span style={{ fontSize:10, fontWeight:800, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'PRO' : 'SIMPLE'}</span>
             {isProMode ? <ToggleRight size={32} weight="fill" color="#007AFF" /> : <ToggleLeft size={32} color="#86868B" />}
         </div>
       </div>
@@ -174,50 +134,28 @@ export default function TradeLab() {
           ) : (
               <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: 25 }}>
                 <form onSubmit={handleSimpleOpen}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 30 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr', gap: 30 }}>
                         <div>
-                            <div className="label-xs" style={{ marginBottom: 15, color: '#007AFF' }}>TRADE SETUP</div>
+                            <div className="label-xs" style={{ marginBottom: 15, color: '#007AFF' }}>QUICK LOG (OPEN POSITION)</div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
-                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Datum</label><input type="date" className="apple-input" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required /></div>
-                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Account</label><select className="apple-input" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required><option value="">Kies...</option>{accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}</select></div>
-                            </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:15, marginBottom:15 }}>
-                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Ticker</label><input className="apple-input" placeholder="EURUSD" value={form.pair} onChange={e => setForm({...form, pair: e.target.value})} required /></div>
-                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Richting</label><div style={{ display:'flex', height: 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}><button type="button" onClick={() => setForm({...form, direction: 'LONG'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', background: form.direction === 'LONG' ? 'white' : 'transparent', color: form.direction === 'LONG' ? '#30D158' : '#86868B' }}>LONG</button><button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button></div></div>
-                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Risk (€)</label><input type="number" className="apple-input" placeholder="100" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required /></div>
-                            </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
-                                <div className="input-group" style={{marginBottom:0}}>
-                                    <label className="input-label">Setup Quality</label>
-                                    <select className="apple-input" value={form.setupQuality} onChange={e => setForm({...form, setupQuality: e.target.value})}>{(config.quality || []).map(q => <option key={q} value={q}>{q}</option>)}</select>
-                                </div>
-                                <div className="input-group" style={{marginBottom:0}}>
-                                    <label className="input-label">Initial Mistake</label>
-                                    <select className="apple-input" value={form.mistake} onChange={e => setForm({...form, mistake: e.target.value})}>{(config.mistakes || []).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                                </div>
+                                <div className="input-group"><label className="input-label">Ticker</label><input className="apple-input" placeholder="EURUSD" value={form.pair} onChange={e => setForm({...form, pair: e.target.value.toUpperCase()})} required /></div>
+                                <div className="input-group"><label className="input-label">Account</label><select className="apple-input" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required><option value="">Kies...</option>{accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}</select></div>
                             </div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15 }}>
-                                 <div className="input-group" style={{marginBottom:0}}><label className="input-label">Strategie</label><select className="apple-input" value={form.strategy} onChange={e => setForm({...form, strategy: e.target.value})}>{(config.strategies || []).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                                 <div className="input-group" style={{marginBottom:0}}><label className="input-label">Screenshot</label><input className="apple-input" placeholder="URL" value={form.screenshot} onChange={e => setForm({...form, screenshot: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">Risk (€)</label><input type="number" step="any" className="apple-input" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required /></div>
+                                <div className="input-group"><label className="input-label">Richting</label><div style={{ display:'flex', height: 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}><button type="button" onClick={() => setForm({...form, direction: 'LONG'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'LONG' ? 'white' : 'transparent', color: form.direction === 'LONG' ? '#30D158' : '#86868B' }}>LONG</button><button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button></div></div>
                             </div>
                         </div>
-                        <div style={{ background: '#F9F9F9', borderRadius: 12, padding: 20, display:'flex', flexDirection:'column' }}>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15 }}>
-                                <div className="label-xs" style={{ marginBottom:0, color:'#FF3B30' }}>CHECK JE REGELS</div>
-                                <div style={{ fontSize:12, fontWeight:700, color: '#1D1D1F' }}>Score: {Math.round(((form.checkedRules || []).length / (config.rules || []).length) * 100)}%</div>
-                            </div>
+                        <div style={{ background: '#F9F9F9', borderRadius: 16, padding: 20, display:'flex', flexDirection:'column' }}>
+                            <div className="label-xs" style={{ color:'#FF3B30', marginBottom: 15 }}>PLAN CONFIDENCE</div>
                             <div style={{ display:'flex', flexDirection:'column', gap: 10, flex:1 }}>
-                                {(config.rules || []).map((rule, idx) => {
-                                    const isChecked = (form.checkedRules || []).includes(rule);
-                                    return (
-                                        <label key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, cursor:'pointer' }}>
-                                            <div style={{ width:16, height:16, borderRadius:4, border:'1px solid #C7C7CC', background: isChecked ? '#007AFF' : 'white', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>{isChecked && <CheckSquare weight="fill" size={14} />}</div>
-                                            <input type="checkbox" checked={isChecked} onChange={() => toggleRule(rule)} style={{ display:'none' }} />{rule}
-                                        </label>
-                                    );
-                                })}
+                                {(config.rules || []).map((rule, idx) => (
+                                    <label key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:12, cursor:'pointer' }}>
+                                        <input type="checkbox" checked={form.checkedRules.includes(rule)} onChange={() => setForm({...form, checkedRules: form.checkedRules.includes(rule) ? form.checkedRules.filter(r => r !== rule) : [...form.checkedRules, rule]})} /> {rule}
+                                    </label>
+                                ))}
                             </div>
-                            <button type="submit" className="btn-primary" style={{ width:'100%', marginTop: 20 }}>EXECUTE TRADE</button>
+                            <button type="submit" className="btn-primary" style={{ width:'100%', marginTop: 20 }}>LOG POSITION</button>
                         </div>
                     </div>
                 </form>
@@ -225,81 +163,118 @@ export default function TradeLab() {
           )}
       </div>
 
-      {/* LOGBOEK TABLE */}
-      <div className="bento-card" style={{ padding: 0, overflow: 'hidden', minHeight: 400 }}>
-         <div className="table-container">
+      {/* LOGBOEK */}
+      <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
             <table className="apple-table">
-                <thead><tr><th style={{width:90}}>Datum</th><th>Info</th><th>Quality</th><th>Status</th><th>Result</th><th></th></tr></thead>
+                <thead><tr><th>Datum</th><th>Ticker</th><th>Strategy</th><th>Status</th><th>Resultaat</th><th></th></tr></thead>
                 <tbody>
-                    {trades.map(trade => {
-                        let mList = Array.isArray(trade.mistake) ? trade.mistake : (trade.mistake ? [trade.mistake] : []);
-                        let mistakeDisplay = mList.filter(m => !m.includes('None')).join(", ");
-
-                        return (
-                            <tr key={trade.id} onClick={() => setEditingTrade(trade)} className="hover-row" style={{ cursor:'pointer', opacity: trade.status==='CLOSED'?0.9:1 }}>
-                                <td style={{ fontSize:12, color:'var(--text-muted)' }}>{new Date(trade.date).toLocaleDateString()}</td>
-                                <td>
-                                    <div style={{ fontWeight:600 }}>{trade.pair} <span style={{fontSize:10, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span></div>
-                                    <div style={{ fontSize:11, color:'var(--text-muted)' }}>{trade.strategy}</div>
-                                </td>
-                                <td>
-                                    <div style={{ fontSize:11, fontWeight:600, color:'#1D1D1F' }}>{trade.setupQuality}</div>
-                                    {mistakeDisplay && <div style={{ fontSize:10, color:'#FF3B30', maxWidth:150, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>⚠️ {mistakeDisplay}</div>}
-                                </td>
-                                <td>{trade.status==='OPEN' ? <span className="badge badge-open">OPEN</span> : <span style={{ fontSize:11, color:'var(--text-muted)' }}>CLOSED</span>}</td>
-                                <td>{trade.status==='OPEN' ? <button onClick={(e)=>{e.stopPropagation();setClosingTrade(trade)}} style={{ background:'#007AFF', color:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11 }}>SLUIT</button> : <div style={{ fontWeight:700, color: trade.pnl>=0?'#30D158':'#FF3B30' }}>{trade.pnl>0?'+':''}€{trade.pnl}</div>}</td>
-                                <td><button onClick={(e)=>{e.stopPropagation(); if(confirm('Verwijderen?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{ border:'none', background:'none', color:'#ccc' }}><Trash size={16}/></button></td>
-                            </tr>
-                        )
-                    })}
+                    {trades.map(trade => (
+                        <tr key={trade.id} onClick={() => setEditingTrade(trade)} className="hover-row" style={{ cursor:'pointer' }}>
+                            <td style={{ fontSize:12, color:'#86868B' }}>{new Date(trade.date).toLocaleDateString()}</td>
+                            <td style={{ fontWeight:700 }}>{trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span></td>
+                            <td style={{ fontSize:12 }}>{trade.strategy || '-'}</td>
+                            <td>{trade.status==='OPEN' ? <span style={{ background:'#E5F1FF', color:'#007AFF', padding:'3px 8px', borderRadius:6, fontSize:10, fontWeight:800 }}>OPEN</span> : <span style={{ color:'#86868B', fontSize:11 }}>CLOSED</span>}</td>
+                            <td>{trade.status==='OPEN' ? <button onClick={(e)=>{e.stopPropagation();setClosingTrade(trade)}} style={{ background:'#007AFF', color:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11 }}>SLUIT</button> : <div style={{ fontWeight:800, color: trade.pnl>=0?'#30D158':'#FF3B30' }}>€{trade.pnl}</div>}</td>
+                            <td><button onClick={(e)=>{e.stopPropagation(); if(confirm('Verwijderen?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{ border:'none', background:'none', color:'#ccc' }}><Trash size={16}/></button></td>
+                        </tr>
+                    ))}
                 </tbody>
             </table>
-         </div>
       </div>
 
-      {/* MODALS (Close & Edit) */}
-      {closingTrade && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(2px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-            <div className="bento-card" style={{ width: 320, padding: 30 }}>
-                <div style={{ textAlign:'center', marginBottom:20 }}><h3>{closingTrade.pair}</h3><p style={{color:'gray'}}>Risk: €{closingTrade.risk}</p></div>
-                <form onSubmit={handleCloseTrade}>
-                    <div className="input-group"><label className="input-label">P&L (€)</label><input className="apple-input" type="number" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} required /></div>
-                    <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:20 }}>Bevestig</button>
+      {/* EVALUATIE MODAL */}
+      {editingTrade && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100 }}>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}>
+                    <h3 style={{ fontWeight: 900 }}>Review: {editingTrade.pair}</h3>
+                    <button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none', cursor:'pointer' }}><X size={24}/></button>
+                </div>
+                
+                <form onSubmit={handleUpdateTrade}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 40 }}>
+                        {/* LINKS: DATA & EXITS */}
+                        <div>
+                            <div className="label-xs" style={{color:'#007AFF', marginBottom: 15 }}>PERFORMANCE ARCHITECTURE</div>
+                            
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, background:'#F2F2F7', padding:15, borderRadius:12, marginBottom:20 }}>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Entry Prijs</label><input className="apple-input" type="number" step="any" value={editingTrade.price || ''} onChange={e => setEditingTrade({...editingTrade, price: e.target.value})} /></div>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">Stoploss</label><input className="apple-input" type="number" step="any" value={editingTrade.sl || ''} onChange={e => setEditingTrade({...editingTrade, sl: e.target.value})} /></div>
+                            </div>
+
+                            <div style={{ marginBottom: 20 }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                                    <label className="input-label" style={{margin:0}}>Werkelijke Exits</label>
+                                    <button type="button" onClick={() => {
+                                        const n = Array.isArray(editingTrade.actualExits) ? [...editingTrade.actualExits, {price:'', lots:''}] : [{price:'', lots:''}, {price:'', lots:''}];
+                                        setEditingTrade({...editingTrade, actualExits: n});
+                                    }} style={{ fontSize:10, color:'#007AFF', background:'none', border:'none', cursor:'pointer', fontWeight:800 }}>+ TP TOEVOEGEN</button>
+                                </div>
+                                {(Array.isArray(editingTrade.actualExits) && editingTrade.actualExits.length > 0 ? editingTrade.actualExits : [{price:'', lots:''}]).map((ex, idx) => (
+                                    <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, marginBottom:8 }}>
+                                        <input className="apple-input" placeholder="Exit Prijs" type="number" step="any" value={ex.price || ''} onChange={e => {
+                                            const n = Array.isArray(editingTrade.actualExits) ? [...editingTrade.actualExits] : [{price:'', lots:''}];
+                                            n[idx] = { ...n[idx], price: e.target.value };
+                                            setEditingTrade({...editingTrade, actualExits: n});
+                                        }} />
+                                        <input className="apple-input" placeholder="Lots" type="number" step="any" value={ex.lots || ''} onChange={e => {
+                                            const n = Array.isArray(editingTrade.actualExits) ? [...editingTrade.actualExits] : [{price:'', lots:''}];
+                                            n[idx] = { ...n[idx], lots: e.target.value };
+                                            setEditingTrade({...editingTrade, actualExits: n});
+                                        }} />
+                                        {idx > 0 && <Trash size={18} onClick={() => setEditingTrade({...editingTrade, actualExits: editingTrade.actualExits.filter((_,i)=>i!==idx)})} style={{cursor:'pointer', color:'#FF3B30', marginTop:12}} />}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="input-group"><label className="input-label">Totaal Netto P&L (€)</label><input className="apple-input" type="number" step="any" value={editingTrade.pnl} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
+                            
+                            <div style={{ background: 'rgba(0,122,255,0.05)', padding: 20, borderRadius: 16, marginTop: 15, border: '1px solid rgba(0,122,255,0.1)' }}>
+                              <div className="label-xs" style={{ color:'#007AFF', marginBottom:10 }}>EDGE EVALUATION (MAE/MFE)</div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">MAE (€ Drawdown)</label><input className="apple-input" type="number" step="any" value={editingTrade.mae || ''} onChange={e => setEditingTrade({...editingTrade, mae: e.target.value})} /></div>
+                                <div className="input-group" style={{marginBottom:0}}><label className="input-label">MFE (€ Peak Profit)</label><input className="apple-input" type="number" step="any" value={editingTrade.mfe || ''} onChange={e => setEditingTrade({...editingTrade, mfe: e.target.value})} /></div>
+                              </div>
+                            </div>
+                        </div>
+
+                        {/* RECHTS: PSYCHOLOGY */}
+                        <div>
+                            <div className="label-xs" style={{color:'#FF9F0A', marginBottom: 15 }}>BEHAVIORAL REVIEW</div>
+                            <div className="input-group"><label className="input-label">Strategie</label><select className="apple-input" value={editingTrade.strategy} onChange={e => setEditingTrade({...editingTrade, strategy: e.target.value})}>{(config.strategies||[]).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+                            <div className="input-group" style={{ marginTop: 20 }}>
+                                <label className="input-label">Lekken gevonden? (Mistakes)</label>
+                                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                    {(config.mistakes || []).map(m => {
+                                        const isSel = (editingTrade.mistake || []).includes(m);
+                                        return (
+                                            <button key={m} type="button" onClick={() => toggleEditMistake(m)} style={{ border: isSel ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: isSel ? 'rgba(255, 59, 48, 0.1)' : 'white', color: isSel ? '#FF3B30' : '#1D1D1F', padding: '6px 12px', borderRadius: 10, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>{m}</button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <div className="input-group" style={{ marginTop: 20 }}><label className="input-label">Trade Emotie</label><div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>{EMOTIONS.map(em=><div key={em.label} onClick={()=>setEditingTrade({...editingTrade, emotion:em.label})} style={{border:editingTrade.emotion===em.label?`2px solid ${em.color}`:'1px solid #E5E5EA', padding:10, borderRadius:12, cursor:'pointer', textAlign:'center', background: editingTrade.emotion===em.label?'white':'transparent'}}>{em.icon}</div>)}</div></div>
+                            <div className="input-group" style={{ marginTop: 20 }}><label className="input-label">Review Notities</label><textarea className="apple-input" rows={4} value={editingTrade.notes} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Focus op het proces, niet het geld..." /></div>
+                        </div>
+                    </div>
+                    <div style={{ marginTop:40, textAlign:'right', borderTop: '1px solid #F5F5F7', paddingTop: 25 }}>
+                      <button type="submit" className="btn-primary" style={{ background: '#007AFF', padding: '14px 40px', fontSize: 16 }}>FINALIZE REVIEW</button>
+                    </div>
                 </form>
             </div>
         </div>
       )}
 
-      {editingTrade && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100 }}>
-            <div className="bento-card" style={{ width: '100%', maxWidth: 700, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}><h3>Edit Trade</h3><button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none' }}><X size={24}/></button></div>
-                <form onSubmit={handleUpdateTrade}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                        <div>
-                            <div className="label-xs" style={{color:'#007AFF'}}>DATA</div>
-                            <div className="input-group"><label className="input-label">P&L (€)</label><input className="apple-input" type="number" value={editingTrade.pnl} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
-                            <div className="input-group"><label className="input-label">Setup Quality</label><select className="apple-input" value={editingTrade.setupQuality} onChange={e => setEditingTrade({...editingTrade, setupQuality: e.target.value})}>{(config.quality||[]).map(q=><option key={q} value={q}>{q}</option>)}</select></div>
-                            <div className="input-group">
-                                <label className="input-label">Mistakes</label>
-                                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                                    {(config.mistakes || []).map(m => {
-                                        const curM = Array.isArray(editingTrade.mistake) ? editingTrade.mistake : (editingTrade.mistake ? [editingTrade.mistake] : []);
-                                        const isSel = curM.includes(m);
-                                        return (
-                                            <button key={m} type="button" onClick={() => toggleEditMistake(m)} style={{ border: isSel ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: isSel ? 'rgba(255, 59, 48, 0.1)' : 'white', color: isSel ? '#FF3B30' : '#1D1D1F', padding: '6px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer' }}>{m}</button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <div className="label-xs" style={{color:'#FF9F0A'}}>PSYCHOLOGY</div>
-                            <div className="input-group"><label className="input-label">Emotion</label><div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>{EMOTIONS.map(em=><div key={em.label} onClick={()=>setEditingTrade({...editingTrade, emotion:em.label})} style={{border:editingTrade.emotion===em.label?`2px solid ${em.color}`:'1px solid #E5E5EA', padding:6, borderRadius:6, cursor:'pointer', fontSize:11}}>{em.label}</div>)}</div></div>
-                            <div className="input-group"><label className="input-label">Notes</label><textarea className="apple-input" rows={4} value={editingTrade.notes} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} /></div>
-                        </div>
-                    </div>
-                    <div style={{ marginTop:20, textAlign:'right' }}><button type="submit" className="btn-primary">Opslaan</button></div>
+      {/* CLOSE POSITION MODAL */}
+      {closingTrade && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1200 }}>
+            <div className="bento-card" style={{ width: 340, padding: 30 }}>
+                <h3 style={{ textAlign:'center', margin:0, fontWeight:800 }}>Sluit {closingTrade.pair}</h3>
+                <p style={{ textAlign:'center', fontSize:12, color:'#86868B', marginBottom:25 }}>Risk Exposure: €{closingTrade.risk}</p>
+                <form onSubmit={handleCloseTrade}>
+                    <div className="input-group"><label className="input-label">Netto Resultaat (€)</label><input className="apple-input" type="number" step="any" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} required /></div>
+                    <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:25, height: 48 }}>BEVESTIG RESULTAAT</button>
+                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', width:'100%', marginTop:15, color:'#86868B', fontSize:12 }}>Annuleren</button>
                 </form>
             </div>
         </div>
