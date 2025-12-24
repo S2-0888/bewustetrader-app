@@ -33,10 +33,11 @@ function App() {
       return () => unsub();
     } else {
       setIsProfileLoading(false);
+      setUserProfile(null);
     }
   }, [user]);
 
-  // LAADSCHERM: Voorkomt de "wit scherm" flits tijdens het matchen
+  // LAADSCHERM
   if (loading || (user && isProfileLoading)) return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7', fontFamily: 'sans-serif' }}>
       <div style={{ position: 'relative', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
@@ -87,8 +88,18 @@ function App() {
             <span>Finance</span>
           </button>
 
+          {/* ADMIN LINK (Command Center) */}
           {isAdmin && (
-            <button className={`nav-item ${view === 'admin' ? 'active' : 'nav-admin'}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF' }}>
+            <button 
+              className={`nav-item ${view === 'admin' ? 'active' : ''}`} 
+              onClick={() => setView('admin')} 
+              style={{ 
+                marginTop: 20, 
+                background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', 
+                color: view === 'admin' ? 'white' : '#007AFF',
+                border: view === 'admin' ? 'none' : '1px solid rgba(0,122,255,0.1)'
+              }}
+            >
               <ShieldCheck size={20} weight={view === 'admin' ? "fill" : "bold"} />
               <span>Command Center</span>
             </button>
@@ -103,7 +114,7 @@ function App() {
         </div>
       </aside>
 
-      {/* MOBIELE TAB BAR (Zichtbaar op mobiel via CSS) */}
+      {/* MOBIELE TAB BAR */}
       <nav className="mobile-tab-bar">
         <button className={`tab-item ${view === 'cockpit' ? 'active' : ''}`} onClick={() => setView('cockpit')}>
           <SquaresFour size={24} weight={view === 'cockpit' ? "fill" : "regular"} />
@@ -117,18 +128,20 @@ function App() {
           <Briefcase size={24} weight={view === 'portfolio' ? "fill" : "regular"} />
           <span>Inventory</span>
         </button>
-        <button className={`tab-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>
-          <ChartLineUp size={24} weight={view === 'finance' ? "fill" : "regular"} />
-          <span>Finance</span>
-        </button>
-        {isAdmin && (
+        {isAdmin ? (
           <button className={`tab-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')}>
             <ShieldCheck size={24} weight={view === 'admin' ? "fill" : "regular"} color="#007AFF" />
             <span>Admin</span>
           </button>
+        ) : (
+          <button className={`tab-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>
+            <ChartLineUp size={24} weight={view === 'finance' ? "fill" : "regular"} />
+            <span>Finance</span>
+          </button>
         )}
       </nav>
 
+      {/* MAIN CONTENT */}
       <main className="main">
         {view === 'cockpit' && <Dashboard />}
         {view === 'tradelab' && <TradeLab />}
