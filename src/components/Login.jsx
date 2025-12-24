@@ -1,38 +1,111 @@
-import { auth } from '../lib/firebase';
+import React from 'react';
+import { auth, db } from '../lib/firebase';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { GoogleLogo } from '@phosphor-icons/react';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { GoogleLogo, Crown, ArrowRight } from '@phosphor-icons/react';
 
 export default function Login() {
   
-  const signInWithGoogle = () => {
+  const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    signInWithPopup(auth, provider).catch((error) => {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // Check of de gebruiker al bestaat in Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userDocRef);
+
+      if (!userSnap.exists()) {
+        // Alleen aanmaken als het een nieuwe gebruiker is
+        await setDoc(userDocRef, {
+          email: user.email,
+          displayName: user.displayName,
+          role: 'user',
+          isFounder: false, // Dit zet jij als admin later aan
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (error) {
       console.error("Fout bij inloggen:", error);
-    });
+    }
   };
 
   return (
     <div style={{ 
-      height: '100vh', 
+      minHeight: '100vh', 
       display: 'flex', 
-      justifyContent: 'center', 
       alignItems: 'center', 
-      background: '#f1f5f9' 
+      justifyContent: 'center', 
+      background: '#F5F5F7',
+      padding: '20px'
     }}>
-      <div className="card" style={{ textAlign: 'center', maxWidth: '400px' }}>
-        <h1 style={{ fontSize: '1.5rem', marginBottom: '10px' }}>Bewuste Trader Cloud</h1>
-        <p style={{ color: 'var(--muted)', marginBottom: '30px' }}>
-          Je persoonlijke trading journal, veilig in de cloud.
-        </p>
+      <div style={{ 
+        width: '100%', 
+        maxWidth: '400px', 
+        background: 'white', 
+        padding: '40px', 
+        borderRadius: '30px', 
+        boxShadow: '0 20px 40px rgba(0,0,0,0.05)',
+        textAlign: 'center'
+      }}>
         
+        {/* DBT BRANDMARK */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '30px' }}>
+            <div style={{ position: 'relative', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
+                <div style={{ position: 'absolute', width: '30px', height: '30px', borderTop: '3.5px solid #1D1D1F', borderLeft: '3.5px solid #1D1D1F', transform: 'rotate(45deg)', top: '2px' }}></div>
+                <div style={{ position: 'absolute', width: '10px', height: '10px', borderRadius: '50%', border: '3.5px solid #1D1D1F', bottom: '4px' }}></div>
+            </div>
+            <h1 style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '2px', margin: 0 }}>DBT</h1>
+            <p style={{ fontSize: '10px', fontWeight: 800, color: '#86868B', marginTop: '4px', letterSpacing: '1px' }}>THE CONSCIOUS TRADER</p>
+        </div>
+
+        <h2 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '8px', letterSpacing: '-0.5px' }}>
+          Welcome to the Network
+        </h2>
+        <p style={{ color: '#86868B', fontSize: '14px', marginBottom: '30px' }}>
+          Master your process, the money follows.
+        </p>
+
         <button 
-          className="btn" 
           onClick={signInWithGoogle}
-          style={{ background: 'white', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', justifyContent: 'center', gap: '10px' }}
+          style={{ 
+            width: '100%', 
+            padding: '14px', 
+            borderRadius: '12px', 
+            border: '1px solid #E5E5EA', 
+            background: 'white', 
+            color: '#1D1D1F', 
+            fontSize: '16px', 
+            fontWeight: 700, 
+            cursor: 'pointer', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            gap: '12px',
+            transition: 'background 0.2s'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.background = '#F9F9F9'}
+          onMouseOut={(e) => e.currentTarget.style.background = 'white'}
         >
-          <GoogleLogo size={20} weight="bold" style={{ color: '#DB4437' }} />
-          Inloggen met Google
+          <GoogleLogo size={22} weight="bold" style={{ color: '#DB4437' }} />
+          Sign in with Google
         </button>
+
+        <div style={{ 
+          marginTop: '35px', padding: '15px', borderRadius: '15px', 
+          background: 'rgba(175, 82, 222, 0.05)', border: '1px solid rgba(175, 82, 222, 0.1)',
+          display: 'flex', alignItems: 'center', gap: '12px'
+        }}>
+          <Crown size={20} weight="fill" color="#AF52DE" />
+          <span style={{ fontSize: '11px', color: '#AF52DE', fontWeight: 700, textAlign: 'left', lineHeight: 1.4 }}>
+            Founder 100 access is limited. Status will be verified by an admin after sign-in.
+          </span>
+        </div>
+
+        <p style={{ fontSize: '10px', color: '#C7C7CC', marginTop: '30px', fontWeight: 600 }}>
+          SECURE ENCRYPTED ACCESS • DBT TRADING TECH
+        </p>
       </div>
     </div>
   );

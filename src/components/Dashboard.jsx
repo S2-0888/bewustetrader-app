@@ -28,15 +28,9 @@ export default function Dashboard() {
     const user = auth.currentUser;
     if (!user) return;
 
-    // DEBUG CHECK: Print je UID in de console zodat je kunt matchen in Firestore
-    console.log("Jouw UID voor Firestore document naam:", user.uid);
-
     const unsubUser = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
-        console.log("DATA BINNEN:", docSnap.data());
         setUserProfile(docSnap.data());
-      } else {
-        console.log("GEEN DOCUMENT: Maak in collectie 'users' een document met naam:", user.uid);
       }
     });
 
@@ -130,7 +124,7 @@ export default function Dashboard() {
   };
 
   const handleBreach = async (account) => {
-      if (window.confirm(`Account ${account.firm} archiveren?`)) {
+      if (window.confirm(`Archive account ${account.firm}?`)) {
           await updateDoc(doc(db, "users", auth.currentUser.uid, "accounts", account.id), { status: 'Breached', archivedDate: new Date().toISOString() });
       }
   };
@@ -138,13 +132,14 @@ export default function Dashboard() {
   return (
     <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
-      {/* HEADER MET FOUNDER BADGE */}
-      <div style={{ marginBottom: isMobile ? 20 : 30, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:15 }}>
+      {/* BRANDED HEADER */}
+      <div style={{ marginBottom: isMobile ? 30 : 50, display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:20 }}>
+        
+        {/* LEFT SIDE: PAGE TITLE */}
         <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <h1 style={{ fontSize: isMobile ? '26px' : '32px', fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>Cockpit</h1>
-                {/* DYNAMISCHE BADGE CHECK */}
-                {userProfile?.isFounder === true && (
+                <h1 style={{ fontSize: isMobile ? '28px' : '36px', fontWeight: 800, margin: 0, letterSpacing: '-1.5px' }}>Cockpit</h1>
+                {userProfile?.isFounder && (
                     <div style={{ 
                         display: 'flex', alignItems: 'center', gap: 4, 
                         background: 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)',
@@ -156,21 +151,39 @@ export default function Dashboard() {
                     </div>
                 )}
             </div>
-            <p style={{ color: '#86868B', fontSize: isMobile ? '12px' : '15px', marginTop: 4 }}>
-                {userProfile?.isFounder ? "Welcome back, Founder. Master your process." : "Master your process, the money follows."}
+            <p style={{ color: '#86868B', fontSize: isMobile ? '13px' : '15px', marginTop: 4 }}>
+                {userProfile?.isFounder ? "Welcome back, Founder. Conscious status active." : "Master your process, the money follows."}
             </p>
         </div>
         
-        <div style={{ display:'flex', gap: 10, width: isMobile ? '100%' : 'auto' }}>
-            <button onClick={() => setShowMoney(!showMoney)} style={{ border: '1px solid #E5E5EA', background: 'white', color: '#1D1D1F', width: 42, height: 42, borderRadius: 12, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {showMoney ? <EyeSlash size={20}/> : <Eye size={20}/>}
-            </button>
-            <div style={{ background: 'rgba(0,0,0,0.05)', padding: 4, borderRadius: 12, display: 'flex', gap: 2, flex: 1 }}>
-                {['7D', '30D', 'YTD', 'ALL'].map(range => (
-                    <button key={range} onClick={() => setTimeRange(range)} style={{ flex: 1, border: 'none', background: timeRange === range ? 'white' : 'transparent', color: 'black', padding: '8px 4px', borderRadius: 9, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
-                        {range}
-                    </button>
-                ))}
+        {/* RIGHT SIDE: LOGO ABOVE FILTERS */}
+        <div style={{ display:'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'flex-end', gap: 15, width: isMobile ? '100%' : 'auto' }}>
+            
+            {!isMobile && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 5 }}>
+                  <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '1.5px', color: '#1D1D1F', lineHeight: 1 }}>DBT</div>
+                      <div style={{ fontSize: '7px', fontWeight: 800, color: '#86868B', marginTop: 2 }}>CONSCIOUS TRADER</div>
+                  </div>
+                  {/* CSS BRANDMARK */}
+                  <div style={{ position: 'relative', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ position: 'absolute', width: 20, height: 20, borderTop: '2.5px solid #1D1D1F', borderLeft: '2.5px solid #1D1D1F', transform: 'rotate(45deg)', top: 2 }}></div>
+                      <div style={{ position: 'absolute', width: 7, height: 7, borderRadius: '50%', border: '2.5px solid #1D1D1F', bottom: 4 }}></div>
+                  </div>
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap: 10, width: isMobile ? '100%' : 'auto' }}>
+                <button onClick={() => setShowMoney(!showMoney)} style={{ border: '1px solid #E5E5EA', background: 'white', color: '#1D1D1F', width: 42, height: 42, borderRadius: 12, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {showMoney ? <EyeSlash size={20}/> : <Eye size={20}/>}
+                </button>
+                <div style={{ background: 'rgba(0,0,0,0.05)', padding: 4, borderRadius: 12, display: 'flex', gap: 2, flex: 1 }}>
+                    {['7D', '30D', 'YTD', 'ALL'].map(range => (
+                        <button key={range} onClick={() => setTimeRange(range)} style={{ flex: 1, border: 'none', background: timeRange === range ? 'white' : 'transparent', color: 'black', padding: '8px 12px', borderRadius: 9, fontSize: 10, fontWeight: 700, cursor: 'pointer', minWidth: isMobile ? 'auto' : 50 }}>
+                            {range}
+                        </button>
+                    ))}
+                </div>
             </div>
         </div>
       </div>
@@ -182,7 +195,7 @@ export default function Dashboard() {
               <div style={{ marginTop: isMobile ? 10 : 20 }}>
                   <div style={{ fontSize: isMobile ? 36 : 48, fontWeight: 800, color: totalR >= 0 ? '#30D158' : '#FF453A' }}>{totalR > 0 ? '+' : ''}{totalR.toFixed(1)}R</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 11, color: '#86868B' }}>DISCIPLINE</div>
+                    <div style={{ fontSize: 11, color: '#86868B' }}>DISCIPLINE SCORE</div>
                     <div style={{ color: '#30D158', fontWeight: 800, fontSize: 13 }}>{avgDiscipline}%</div>
                   </div>
               </div>
@@ -204,7 +217,7 @@ export default function Dashboard() {
               <div style={{ marginTop: 10 }}>
                   {(() => {
                       const tradesWithMfe = (closedTrades || []).filter(t => t.mfe > 0 && t.pnl > 0);
-                      if (tradesWithMfe.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>No Edge Data.</div>;
+                      if (tradesWithMfe.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>No data available.</div>;
                       const avgEfficiency = tradesWithMfe.reduce((acc, t) => acc + (t.pnl / t.mfe), 0) / tradesWithMfe.length;
                       const score = Math.round(avgEfficiency * 100);
                       return (
@@ -213,7 +226,7 @@ export default function Dashboard() {
                               <div style={{ width: '100%', height: 6, background: '#F2F2F7', borderRadius: 3, marginTop: 10 }}>
                                   <div style={{ width: `${score}%`, height: '100%', background: '#AF52DE', borderRadius: 3 }}></div>
                               </div>
-                              <div style={{ fontSize: 10, color: '#86868B', marginTop: 8 }}>{score > 70 ? 'Perfect Exits' : 'Leaving money on table'}</div>
+                              <div style={{ fontSize: 10, color: '#86868B', marginTop: 8 }}>{score > 70 ? 'Optimal Exits' : 'Leaving money on table'}</div>
                           </>
                       );
                   })()}
@@ -230,10 +243,10 @@ export default function Dashboard() {
                           mistakes.forEach(m => { if (m && !m.includes("None")) mistakeCounts[m] = (mistakeCounts[m] || 0) + 1; });
                       });
                       const sortedMistakes = Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
-                      if (sortedMistakes.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>Process is clean. No leaks found!</div>;
+                      if (sortedMistakes.length === 0) return <div style={{ fontSize: 12, color: '#86868B' }}>Clean process. No behavioral leaks detected.</div>;
                       return sortedMistakes.map(([name, count]) => (
                           <div key={name} style={{ background: 'rgba(255, 59, 48, 0.05)', border: '1px solid rgba(255, 59, 48, 0.1)', padding: '8px 12px', borderRadius: 10, flex: 1 }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: '#FF3B30' }}>{count}X RECURRENCE</div>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: '#FF3B30' }}>{count}X OCCURRENCE</div>
                               <div style={{ fontSize: 12, fontWeight: 700 }}>{name}</div>
                           </div>
                       ));
@@ -242,19 +255,19 @@ export default function Dashboard() {
           </div>
       </div>
 
-      {/* AI COACH ALERT */}
+      {/* SYSTEM ALERTS */}
       {avgDiscipline < 70 && closedTrades.length >= 3 && (
           <div className="bento-card" style={{ background: 'linear-gradient(90deg, #FF9F0A 0%, #FF3B30 100%)', color: 'white', marginBottom: 20, padding: '15px', border: 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Warning weight="fill" size={20} />
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>DISCIPLINE ALERT: Plan execution is low ({avgDiscipline}%). Review your rules before next session.</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>DISCIPLINE ALERT: Plan execution is low ({avgDiscipline}%). Review rules before next session.</div>
               </div>
           </div>
       )}
 
-      {/* RECENT PROCESS */}
+      {/* RECENT PERFORMANCE STRIP */}
       <div className="bento-card" style={{ padding: 15, marginBottom: 20 }}>
-          <div className="label-xs" style={{ marginBottom:10 }}><CalendarBlank weight="fill"/> RECENT PROCESS</div>
+          <div className="label-xs" style={{ marginBottom:10 }}><CalendarBlank weight="fill"/> RECENT PROCESS LOG</div>
           <div style={{ display:'flex', justifyContent:'space-between', gap: 4 }}>
               {(calendarStrip || []).map((day, idx) => (
                   <div key={idx} style={{ flex: 1, textAlign:'center' }}>
@@ -266,8 +279,8 @@ export default function Dashboard() {
           </div>
       </div>
 
-      {/* ACTIVE ACCOUNTS */}
-      <div className="label-xs" style={{ marginBottom: 10 }}>ACTIVE INVENTORY ({activeAccounts.length})</div>
+      {/* ACTIVE ACCOUNTS INVENTORY */}
+      <div className="label-xs" style={{ marginBottom: 10 }}>ACTIVE ACCOUNTS ({activeAccounts.length})</div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))', gap: 15 }}>
           {activeAccounts.map(acc => {
               const accTrades = trades.filter(t => t.accountId === acc.id && t.status === 'CLOSED');
@@ -310,16 +323,16 @@ export default function Dashboard() {
           })}
       </div>
 
-      {/* MODAL PHASE PASS */}
+      {/* PHASE TRANSITION MODAL */}
       {promoteAccount && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:3000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 360, textAlign:'center' }}>
                  <div style={{ fontSize: 40 }}>🏆</div>
-                 <h2 style={{ fontWeight: 900, fontSize: 20 }}>Phase Passed!</h2>
+                 <h2 style={{ fontWeight: 900, fontSize: 20 }}>Phase Accomplished</h2>
                  <form onSubmit={handlePromoteConfirm} style={{ textAlign:'left', marginTop:15 }}>
-                     <div className="input-group"><label className="input-label">Volgende Fase</label><select className="apple-input" value={nextPhaseForm.stage} onChange={e => setNextPhaseForm({...nextPhaseForm, stage: e.target.value})}><option value="Phase 2">Phase 2</option><option value="Funded">Funded</option></select></div>
-                     <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ width:'100%', marginTop:15 }}>{isSubmitting ? 'Bezig...' : 'Activeer Fase'}</button>
-                     <button type="button" onClick={() => setPromoteAccount(null)} style={{ width:'100%', background:'none', border:'none', marginTop:10, color:'#86868B', fontSize: 12 }}>Sluiten</button>
+                     <div className="input-group"><label className="input-label">Next Stage</label><select className="apple-input" value={nextPhaseForm.stage} onChange={e => setNextPhaseForm({...nextPhaseForm, stage: e.target.value})}><option value="Phase 2">Phase 2</option><option value="Funded">Funded</option></select></div>
+                     <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ width:'100%', marginTop:15 }}>{isSubmitting ? 'Processing...' : 'Activate Next Phase'}</button>
+                     <button type="button" onClick={() => setPromoteAccount(null)} style={{ width:'100%', background:'none', border:'none', marginTop:10, color:'#86868B', fontSize: 12 }}>Cancel</button>
                  </form>
             </div>
         </div>
