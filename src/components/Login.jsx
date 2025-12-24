@@ -8,26 +8,37 @@ export default function Login() {
   
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
+    // Forceer accountkeuze om te voorkomen dat de popup direct sluit
+    provider.setCustomParameters({ prompt: 'select_account' });
+
     try {
+      console.log("Starting Google login...");
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
+      console.log("Auth success for:", user.email);
 
       // Check of de gebruiker al bestaat in Firestore
       const userDocRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userDocRef);
 
       if (!userSnap.exists()) {
-        // Alleen aanmaken als het een nieuwe gebruiker is
+        console.log("New user detected. Creating profile...");
         await setDoc(userDocRef, {
           email: user.email,
           displayName: user.displayName,
           role: 'user',
-          isFounder: false, // Dit zet jij als admin later aan
+          isFounder: false, 
           createdAt: serverTimestamp()
         });
       }
+      console.log("Login sequence finished.");
     } catch (error) {
-      console.error("Fout bij inloggen:", error);
+      console.error("Gedetailleerde fout bij inloggen:", error.code, error.message);
+      if (error.code === 'auth/popup-closed-by-user') {
+        alert("Login window closed. Please try again.");
+      } else {
+        alert("Login error: " + error.message);
+      }
     }
   };
 
