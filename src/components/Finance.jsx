@@ -2,22 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, addDoc, deleteDoc, doc, orderBy } from 'firebase/firestore';
 import { 
-  TrendUp, Trash, Plus, Wallet, ChartPie, Receipt, Money 
+  TrendUp, Trash, Plus, Wallet, ChartPie, Receipt, Money, Coins, CaretDown, SealCheck 
 } from '@phosphor-icons/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function Finance() {
   const [metrics, setMetrics] = useState({ invested: 0, payouts: 0 });
   const [payoutsList, setPayoutsList] = useState([]);
+  const [accounts, setAccounts] = useState([]); 
+  const [userProfile, setUserProfile] = useState(null);
   const [showPayoutForm, setShowPayoutForm] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [payoutForm, setPayoutForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    source: '',
+    accountId: '', 
     amount: ''
   });
 
-  // Listen for screen size changes
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
@@ -25,94 +28,109 @@ export default function Finance() {
   }, []);
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-        if (!user) return;
+    const user = auth.currentUser;
+    if (!user) return;
 
-        const qAccounts = query(collection(db, "users", user.uid, "accounts"));
-        const unsubAcc = onSnapshot(qAccounts, (snap) => {
-          const accounts = snap.docs.map(d => d.data());
-          const totalInvested = accounts.reduce((sum, acc) => sum + (Number(acc.cost) || 0), 0);
-          setMetrics(prev => ({ ...prev, invested: totalInvested }));
-        });
-
-        const qPayouts = query(collection(db, "users", user.uid, "payouts"), orderBy("date", "desc"));
-        const unsubPayouts = onSnapshot(qPayouts, (snap) => {
-          const payouts = snap.docs.map(d => ({ id: d.id, ...d.data() })); 
-          const totalPayouts = payouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-          setPayoutsList(payouts);
-          setMetrics(prev => ({ ...prev, payouts: totalPayouts }));
-        });
-
-        return () => { unsubAcc(); unsubPayouts(); };
+    onSnapshot(doc(db, "users", user.uid), (snap) => {
+      if (snap.exists()) setUserProfile(snap.data());
     });
-    return () => unsubscribeAuth();
+
+    const unsubAcc = onSnapshot(query(collection(db, "users", user.uid, "accounts")), (snap) => {
+      const allAccs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAccounts(allAccs); 
+      const totalInvested = allAccs.reduce((sum, acc) => sum + (Number(acc.cost) || 0), 0);
+      setMetrics(prev => ({ ...prev, invested: totalInvested }));
+    });
+
+    const unsubPayouts = onSnapshot(query(collection(db, "users", user.uid, "payouts"), orderBy("date", "desc")), (snap) => {
+      const payouts = snap.docs.map(d => ({ id: d.id, ...d.data() })); 
+      const totalPayouts = payouts.reduce((sum, p) => sum + (Number(p.convertedAmount) || 0), 0);
+      setPayoutsList(payouts);
+      setMetrics(prev => ({ ...prev, payouts: totalPayouts }));
+    });
+
+    return () => { unsubAcc(); unsubPayouts(); };
   }, []);
 
-  // --- BEREKENINGEN ---
-  const netProfit = metrics.payouts - metrics.invested;
-  const roi = metrics.invested > 0 ? (netProfit / metrics.invested) * 100 : 0;
+  const getExchangeRate = async (from, to) => {
+    if (from === to) return 1;
+    try {
+      const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`);
+      const data = await res.json();
+      return data.rates[to] || 1;
+    } catch (e) { return 1; }
+  };
 
-  const byYear = payoutsList.reduce((acc, p) => {
-      const year = p.date ? p.date.split('-')[0] : 'Unknown';
-      acc[year] = (acc[year] || 0) + Number(p.amount);
-      return acc;
-  }, {});
-  const years = Object.keys(byYear).sort();
+  const handleAddPayout = async (e) => {
+    e.preventDefault();
+    const selectedAccount = accounts.find(a => a.id === payoutForm.accountId);
+    if (!payoutForm.amount || !selectedAccount || isSubmitting) return;
+    
+    setIsSubmitting(true);
+    const base = userProfile?.baseCurrency || 'USD';
+    const accCurrency = selectedAccount.accountCurrency || 'USD';
+    const rate = await getExchangeRate(accCurrency, base);
+    const convertedAmount = Number(payoutForm.amount) * rate;
 
-  const byFirm = payoutsList.reduce((acc, p) => {
-      const firm = p.source || 'Unknown';
-      if (!acc[firm]) acc[firm] = { amount: 0, count: 0 };
-      acc[firm].amount += Number(p.amount);
-      acc[firm].count += 1;
-      return acc;
-  }, {});
-  const sortedFirms = Object.keys(byFirm)
-    .map(firm => ({ firm, ...byFirm[firm] }))
-    .sort((a, b) => b.amount - a.amount);
+    await addDoc(collection(db, "users", auth.currentUser.uid, "payouts"), {
+      date: payoutForm.date,
+      accountId: selectedAccount.id,
+      source: selectedAccount.firm,
+      accountNumber: selectedAccount.accountNumber || '',
+      amount: Number(payoutForm.amount),
+      currency: accCurrency,
+      convertedAmount: convertedAmount,
+      baseCurrencyAtTime: base,
+      createdAt: new Date()
+    });
+
+    setPayoutForm({ date: new Date().toISOString().split('T')[0], accountId: '', amount: '' });
+    setShowPayoutForm(false);
+    setIsSubmitting(false);
+  };
+
+  const fmt = (amount) => {
+    return new Intl.NumberFormat('en-US', { 
+      style: 'currency', 
+      currency: userProfile?.baseCurrency || 'USD', 
+      minimumFractionDigits: 0 
+    }).format(amount || 0);
+  };
 
   const chartData = [...payoutsList].reverse().reduce((acc, p, idx) => {
     const prevBalance = idx > 0 ? acc[idx - 1].total : 0;
     acc.push({
-      date: new Date(p.date).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' }),
-      total: prevBalance + p.amount
+      date: new Date(p.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short' }),
+      total: prevBalance + (Number(p.convertedAmount) || 0)
     });
     return acc;
   }, []);
 
-  const fmt = (amount) => new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0 }).format(amount || 0);
+  const fundedAccounts = accounts.filter(acc => acc.stage === 'Funded' && acc.status === 'Active');
 
   return (
     <div style={{ padding: isMobile ? '20px 15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
-      <header style={{ marginBottom: isMobile ? 30 : 40 }}>
-        <h1 style={{ fontSize: isMobile ? '28px' : '34px', fontWeight: 800, letterSpacing: '-1px', margin: 0 }}>Finance</h1>
-        <p style={{ color: '#86868B', fontSize: isMobile ? '15px' : '17px' }}>Realized performance & cashflow.</p>
+      <header style={{ marginBottom: 40 }}>
+        <h1 style={{ fontSize: '34px', fontWeight: 800, letterSpacing: '-1px', margin: 0 }}>Finance</h1>
+        <p style={{ color: '#86868B' }}>Realized cashflow in {userProfile?.baseCurrency || 'USD'}</p>
       </header>
 
-      {/* BENTO GRID - Responsief naar 1 kolom op mobiel */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', 
-        gap: 20 
-      }}>
-        
-        {/* GROWTH CHART */}
-        <div className="bento-card" style={{ gridColumn: isMobile ? 'span 1' : 'span 2', minHeight: isMobile ? 350 : 400 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 20, marginBottom: 30 }}>
+        <div className="bento-card" style={{ minWidth: 0, minHeight: 400 }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 20 }}>
             <div>
-              <span className="label-xs">Net Profit</span>
-              <div style={{ fontSize: isMobile ? '32px' : '42px', fontWeight: 800, color: netProfit >= 0 ? '#34C759' : '#FF3B30', letterSpacing: '-1.5px' }}>
-                {fmt(netProfit)}
+              <span className="label-xs">Net Realized Profit</span>
+              <div style={{ fontSize: '42px', fontWeight: 800, color: (metrics.payouts - metrics.invested) >= 0 ? '#34C759' : '#FF3B30' }}>
+                {fmt(metrics.payouts - metrics.invested)}
               </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <span className="label-xs">ROI</span>
-              <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 700, color: roi >= 0 ? '#34C759' : '#FF3B30' }}>
-                {roi.toFixed(1)}%
-              </div>
+            <div style={{ textAlign:'right' }}>
+                <span className="label-xs">ROI</span>
+                <div style={{ fontSize: '24px', fontWeight: 700 }}>{((metrics.payouts - metrics.invested) / (metrics.invested || 1) * 100).toFixed(1)}%</div>
             </div>
           </div>
-          <div style={{ width: '100%', height: isMobile ? 180 : 250 }}>
+          <div style={{ width: '100%', height: 250 }}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
@@ -122,164 +140,100 @@ export default function Finance() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="0" vertical={false} stroke="rgba(0,0,0,0.05)" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#86868B'}} hide={isMobile} />
-                <YAxis hide domain={['dataMin - 100', 'dataMax + 500']} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(10px)', fontSize: '12px' }} 
-                  itemStyle={{ fontWeight: 800, color: '#1D1D1F' }}
-                />
+                <XAxis dataKey="date" hide={isMobile} />
+                <YAxis hide />
+                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(10px)' }} />
                 <Area type="monotone" dataKey="total" stroke="#34C759" strokeWidth={3} fill="url(#colorProfit)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* QUICK STATS - Meer compact op mobiel */}
         <div className="bento-card">
-          <span className="label-xs">Accounting Details</span>
+          <span className="label-xs">Accounting Details ({userProfile?.baseCurrency})</span>
           <div style={{ marginTop: 25, display:'flex', flexDirection:'column', gap: 25 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div>
-                <div style={{ color: '#86868B', fontSize: 11, fontWeight: 700, textTransform:'uppercase' }}>Totaal Kosten</div>
-                <div style={{ fontSize: '24px', fontWeight: 700 }}>{fmt(metrics.invested)}</div>
-              </div>
-              <div style={{ background: 'rgba(255,59,48,0.1)', color: '#FF3B30', padding: 10, borderRadius: 12 }}>
-                <Receipt size={24} weight="fill" />
-              </div>
+            <div>
+                <div style={{ color: '#86868B', fontSize: 11, fontWeight: 700, textTransform:'uppercase' }}>Total Portfolio Cost</div>
+                <div style={{ fontSize: '28px', fontWeight: 700 }}>{fmt(metrics.invested)}</div>
             </div>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div>
-                <div style={{ color: '#86868B', fontSize: 11, fontWeight: 700, textTransform:'uppercase' }}>Gem. Payout</div>
-                <div style={{ fontSize: '24px', fontWeight: 700 }}>{fmt(payoutsList.length > 0 ? metrics.payouts / payoutsList.length : 0)}</div>
-              </div>
-              <div style={{ background: 'rgba(0,122,255,0.1)', color: '#007AFF', padding: 10, borderRadius: 12 }}>
-                <Money size={24} weight="fill" />
-              </div>
+            <div>
+                <div style={{ color: '#86868B', fontSize: 11, fontWeight: 700, textTransform:'uppercase' }}>Total Payouts</div>
+                <div style={{ fontSize: '28px', fontWeight: 700, color: '#34C759' }}>{fmt(metrics.payouts)}</div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* YEARLY TURNOVER */}
-        <div className="bento-card">
-          <div className="label-xs" style={{ display:'flex', alignItems:'center', gap: 8, marginBottom: 20 }}>
-            <TrendUp size={16} weight="fill" color="#007AFF"/> YEARLY TURNOVER
+      <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <Money size={20} weight="fill" color="#34C759"/>
+              <span className="label-xs" style={{ margin:0 }}>Payout History</span>
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap: 20 }}>
-            {years.map(year => {
-              const amount = byYear[year];
-              const maxYear = Math.max(...Object.values(byYear)) || 1;
-              return (
-                <div key={year}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
-                    <span>{year}</span><span style={{ color: '#1D1D1F' }}>{fmt(amount)}</span>
-                  </div>
-                  <div style={{ width:'100%', height: 10, background:'#F2F2F7', borderRadius: 5, overflow:'hidden' }}>
-                    <div style={{ width:`${(amount/maxYear)*100}%`, height:'100%', background:'#007AFF', borderRadius:5 }}></div>
-                  </div>
+          <button onClick={() => setShowPayoutForm(!showPayoutForm)} className="btn-primary" style={{ background: showPayoutForm ? '#86868B' : '#007AFF', padding: '8px 16px' }}>
+            {showPayoutForm ? 'Close' : '+ Log Payout'}
+          </button>
+        </div>
+
+        {showPayoutForm && (
+           <div style={{ padding: 24, background: '#FBFBFC', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+              {fundedAccounts.length > 0 ? (
+                <form onSubmit={handleAddPayout} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 2fr 1.2fr auto', gap: 15, alignItems: 'end' }}>
+                   <div className="input-group"><label className="input-label">Date</label><input className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} /></div>
+                   <div className="input-group">
+                      <label className="input-label">Source</label>
+                      <select className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
+                          <option value="">Select funded account...</option>
+                          {fundedAccounts.map(acc => (
+                              <option key={acc.id} value={acc.id}>
+                                  {acc.firm} — {acc.accountNumber} ({acc.accountCurrency})
+                              </option>
+                          ))}
+                      </select>
+                   </div>
+                   <div className="input-group">
+                      <label className="input-label">Amount ({accounts.find(a => a.id === payoutForm.accountId)?.accountCurrency || '...' })</label>
+                      <input className="apple-input" type="number" placeholder="0.00" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} />
+                   </div>
+                   <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ height: 44, background: '#34C759' }}>Confirm</button>
+                </form>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '10px 0', color: '#FF3B30', fontSize: 13, fontWeight: 600 }}>
+                  <SealCheck size={20} weight="bold" style={{ marginBottom: 5 }} /><br/>
+                  No Funded Accounts found.
                 </div>
-              );
-            })}
-            {years.length === 0 && <div style={{ color:'#ccc', fontSize:13, textAlign:'center', padding:20 }}>Geen data voor dit jaar</div>}
-          </div>
-        </div>
+              )}
+           </div>
+        )}
 
-        {/* INCOME BY FIRM */}
-        <div className="bento-card" style={{ gridColumn: isMobile ? 'span 1' : 'span 2' }}>
-          <div className="label-xs" style={{ display:'flex', alignItems:'center', gap: 8, marginBottom: 20 }}>
-            <ChartPie size={16} weight="fill" color="#AF52DE"/> INCOME BY FIRM
-          </div>
-          <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto' }}>
             <table className="apple-table">
                 <thead>
-                  <tr>
-                    <th>Platform</th>
-                    <th style={{ textAlign: 'center' }}>Qty</th>
-                    <th style={{ textAlign: 'right' }}>Totaal</th>
-                    {!isMobile && <th>Share</th>}
-                  </tr>
+                    <tr>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th style={{ textAlign: 'right' }}>Local Payout</th>
+                        <th style={{ textAlign: 'right' }}>Net Value ({userProfile?.baseCurrency})</th>
+                        <th></th>
+                    </tr>
                 </thead>
                 <tbody>
-                  {sortedFirms.map((item, idx) => (
-                    <tr key={idx}>
-                      <td style={{ fontWeight: 700 }}>{item.firm}</td>
-                      <td style={{ textAlign: 'center' }}>{item.count}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#34C759' }}>{fmt(item.amount)}</td>
-                      {!isMobile && (
-                        <td>
-                          <div style={{ fontSize:10, background:'#F2F2F7', padding:'3px 8px', borderRadius:6, width:'fit-content', fontWeight:700 }}>
-                            {((item.amount/metrics.payouts)*100).toFixed(1)}%
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                    {payoutsList.map(pay => (
+                        <tr key={pay.id}>
+                            <td style={{ color: '#86868B', fontSize: 13 }}>{new Date(pay.date).toLocaleDateString()}</td>
+                            <td>
+                                <div style={{ fontWeight: 600 }}>{pay.source}</div>
+                                <div style={{ fontSize: 10, color: '#86868B' }}>ID: {pay.accountNumber}</div>
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: 600 }}>{pay.amount.toLocaleString()} {pay.currency}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#34C759' }}>+{fmt(pay.convertedAmount)}</td>
+                            <td style={{ textAlign: 'right' }}>
+                                <button onClick={() => deleteDoc(doc(db, "users", auth.currentUser.uid, "payouts", pay.id))} style={{ border:'none', background:'none', color:'#D2D2D7' }}><Trash size={18} /></button>
+                            </td>
+                        </tr>
+                    ))}
                 </tbody>
             </table>
-          </div>
-        </div>
-
-        {/* PAYOUT HISTORY LOG */}
-        <div className="bento-card" style={{ gridColumn: isMobile ? 'span 1' : 'span 3', padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap: 'wrap', gap: 10 }}>
-            <span className="label-xs">Payout History</span>
-            <button 
-              onClick={() => setShowPayoutForm(!showPayoutForm)} 
-              className="btn-primary" 
-              style={{ padding: isMobile ? '10px 14px' : '8px 16px', borderRadius: 12, fontSize: 13, background: showPayoutForm ? '#86868B' : '#007AFF' }}
-            >
-              {showPayoutForm ? 'Sluiten' : '+ Log Payout'}
-            </button>
-          </div>
-
-          {showPayoutForm && (
-             <div style={{ padding: 24, background: '#FBFBFC', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!payoutForm.amount || !payoutForm.source) return;
-                  await addDoc(collection(db, "users", auth.currentUser.uid, "payouts"), {
-                    ...payoutForm, amount: Number(payoutForm.amount), createdAt: new Date()
-                  });
-                  setPayoutForm({ date: new Date().toISOString().split('T')[0], source: '', amount: '' });
-                  setShowPayoutForm(false);
-                }} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr auto', gap: 15, alignItems: 'end' }}>
-                   <div className="input-group" style={{marginBottom: 0}}><label className="input-label">Datum</label><input className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} /></div>
-                   <div className="input-group" style={{marginBottom: 0}}><label className="input-label">Bron (Firm)</label><input className="apple-input" placeholder="Bijv. FTMO" value={payoutForm.source} onChange={e => setPayoutForm({...payoutForm, source: e.target.value})} /></div>
-                   <div className="input-group" style={{marginBottom: 0}}><label className="input-label">Bedrag</label><input className="apple-input" type="number" placeholder="0" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} /></div>
-                   <button type="submit" className="btn-primary" style={{ height: 44, background: '#34C759' }}>Bevestig</button>
-                </form>
-             </div>
-          )}
-
-          <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-            <table className="apple-table">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Firm</th>
-                  <th style={{ textAlign: 'right' }}>Bedrag</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {payoutsList.map(pay => (
-                  <tr key={pay.id}>
-                    <td style={{ color: '#86868B', fontSize: isMobile ? '11px' : '13px' }}>{new Date(pay.date).toLocaleDateString('nl-NL')}</td>
-                    <td style={{ fontWeight: 600 }}>{pay.source}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#34C759' }}>+{fmt(pay.amount)}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button 
-                        onClick={() => { if(confirm('Verwijderen?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "payouts", pay.id)) }} 
-                        style={{ border:'none', background:'none', color:'#D2D2D7', cursor:'pointer', padding: 5 }}
-                      >
-                        <Trash size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {payoutsList.length === 0 && <div style={{ padding: 40, textAlign:'center', color:'#86868B', fontSize:13 }}>Nog geen history gelogd.</div>}
-          </div>
         </div>
       </div>
     </div>

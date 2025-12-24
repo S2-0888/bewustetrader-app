@@ -2,7 +2,7 @@ import React from 'react';
 import { auth, db } from '../lib/firebase';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { GoogleLogo, Crown, ArrowRight } from '@phosphor-icons/react';
+import { GoogleLogo, Crown } from '@phosphor-icons/react';
 
 export default function Login() {
   
@@ -22,18 +22,28 @@ export default function Login() {
       const userSnap = await getDoc(userDocRef);
 
       if (!userSnap.exists()) {
-        console.log("New user detected. Creating profile...");
+        console.log("New user detected. Creating profile with pending approval...");
         await setDoc(userDocRef, {
           email: user.email,
           displayName: user.displayName,
           role: 'user',
-          isFounder: false, 
-          createdAt: serverTimestamp()
+          isApproved: false, // Nieuwe users moeten eerst goedgekeurd worden
+          isFounder: false,  // Founder status moet verdiend worden
+          createdAt: serverTimestamp(),
+          lastLogin: serverTimestamp()
         });
+      } else {
+        // Voor bestaande users: Alleen de lastLogin tijd bijwerken
+        console.log("Existing user. Updating last login...");
+        await setDoc(userDocRef, { 
+          lastLogin: serverTimestamp(),
+          displayName: user.displayName 
+        }, { merge: true });
       }
+      
       console.log("Login sequence finished.");
     } catch (error) {
-      console.error("Gedetailleerde fout bij inloggen:", error.code, error.message);
+      console.error("Detailed login error:", error.code, error.message);
       if (error.code === 'auth/popup-closed-by-user') {
         alert("Login window closed. Please try again.");
       } else {

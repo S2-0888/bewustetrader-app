@@ -1,15 +1,14 @@
-
 import React, { useState } from 'react';
 import { X, Plus, Trash } from '@phosphor-icons/react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 
 export default function TradeSettingsModal({ onClose, config, onUpdate }) {
-  // Lokale state voor bewerking (zodat we niet bij elke letter typen naar DB schrijven)
+  // Local state for editing (preventing DB writes on every keystroke)
   const [localConfig, setLocalConfig] = useState(config);
   const [newItems, setNewItems] = useState({ strategies: '', rules: '', mistakes: '', quality: '' });
 
-  // Functie om item toe te voegen
+  // Function to add item
   const addItem = (category, value) => {
     if (!value.trim()) return;
     const updatedList = [...(localConfig[category] || []), value.trim()];
@@ -17,34 +16,34 @@ export default function TradeSettingsModal({ onClose, config, onUpdate }) {
     setNewItems({ ...newItems, [category]: '' }); // Reset input
   };
 
-  // Functie om item te verwijderen
+  // Function to remove item
   const removeItem = (category, itemToRemove) => {
     const updatedList = localConfig[category].filter(item => item !== itemToRemove);
     setLocalConfig({ ...localConfig, [category]: updatedList });
   };
 
-  // Opslaan naar Firebase
+  // Save to Firebase
   const handleSave = async () => {
     const user = auth.currentUser;
     if (!user) return;
 
     try {
-      // We slaan dit op in een apart document 'settings/tradelab'
+      // Saved in a separate document 'settings/tradelab'
       await setDoc(doc(db, "users", user.uid, "settings", "tradelab"), localConfig);
-      onUpdate(localConfig); // Update de parent direct
+      onUpdate(localConfig); // Update parent state directly
       onClose();
     } catch (error) {
-      console.error("Fout bij opslaan:", error);
-      alert("Kon instellingen niet opslaan.");
+      console.error("Error saving settings:", error);
+      alert("Could not save settings.");
     }
   };
 
-  // Hulpcomponent voor een lijst-sectie
+  // Helper component for a list section
   const ListSection = ({ title, category, placeholder }) => (
     <div style={{ marginBottom: 20 }}>
       <label className="input-label" style={{ fontWeight: 700, marginBottom: 8, display: 'block' }}>{title}</label>
       
-      {/* De Lijst */}
+      {/* The List */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         {(localConfig[category] || []).map((item, idx) => (
           <div key={idx} style={{ background: '#F2F2F7', padding: '4px 10px', borderRadius: 6, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -80,20 +79,20 @@ export default function TradeSettingsModal({ onClose, config, onUpdate }) {
       <div className="bento-card" style={{ width: '100%', maxWidth: 500, padding: 30, maxHeight: '90vh', overflowY: 'auto' }}>
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>TradeLab Instellingen</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>TradeLab Settings</div>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={24} /></button>
         </div>
 
         <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: 5 }}>
-            <ListSection title="📋 Jouw Regels (Discipline)" category="rules" placeholder="Bv: Wacht op candle close" />
-            <ListSection title="📈 Strategieën" category="strategies" placeholder="Bv: Silver Bullet" />
-            <ListSection title="⚠️ Fouten / Tags" category="mistakes" placeholder="Bv: FOMO" />
-            <ListSection title="⭐ Kwaliteit Labels" category="quality" placeholder="Bv: A+ Setup" />
+            <ListSection title="📋 Your Rules (Discipline)" category="rules" placeholder="e.g. Wait for candle close" />
+            <ListSection title="📈 Strategies" category="strategies" placeholder="e.g. Silver Bullet" />
+            <ListSection title="⚠️ Mistakes / Tags" category="mistakes" placeholder="e.g. FOMO" />
+            <ListSection title="⭐ Quality Labels" category="quality" placeholder="e.g. A+ Setup" />
         </div>
 
         <div style={{ paddingTop: 20, marginTop: 20, borderTop: '1px solid #F5F5F7', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} className="btn-primary" style={{ background: '#F2F2F7', color: '#1D1D1F' }}>Annuleren</button>
-          <button onClick={handleSave} className="btn-primary" style={{ background: '#007AFF' }}>Opslaan</button>
+          <button onClick={onClose} className="btn-primary" style={{ background: '#F2F2F7', color: '#1D1D1F' }}>Cancel</button>
+          <button onClick={handleSave} className="btn-primary" style={{ background: '#007AFF' }}>Save Settings</button>
         </div>
 
       </div>

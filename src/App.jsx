@@ -4,7 +4,7 @@ import { auth, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck 
+  Gear, SignOut, ShieldCheck, Crown 
 } from '@phosphor-icons/react';
 
 import Dashboard from './components/Dashboard';
@@ -37,7 +37,6 @@ function App() {
     }
   }, [user]);
 
-  // LAADSCHERM
   if (loading || (user && isProfileLoading)) return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7', fontFamily: 'sans-serif' }}>
       <div style={{ position: 'relative', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
@@ -50,11 +49,26 @@ function App() {
 
   if (!user) return <Login />;
 
-  const handleLogout = () => {
-    auth.signOut();
-  };
-
+  const handleLogout = () => { auth.signOut(); };
   const isAdmin = userProfile?.role === 'admin';
+  const isApproved = userProfile?.isApproved || isAdmin;
+
+  if (user && !isApproved) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20, background: '#F5F5F7', fontFamily: 'sans-serif' }}>
+        <div style={{ maxWidth: 400, padding: 40, background: 'white', borderRadius: 30, boxShadow: '0 20px 40px rgba(0,0,0,0.05)' }}>
+          <Crown size={64} weight="fill" color="#AF52DE" />
+          <h2 style={{ fontSize: 24, fontWeight: 800, marginTop: 24, marginBottom: 8 }}>Account Pending Approval</h2>
+          <p style={{ color: '#86868B', fontSize: 15, lineHeight: 1.5, marginBottom: 24 }}>Welcome to the DBT Network. For exclusivity reasons, your access is currently being verified by an admin.</p>
+          <div style={{ padding: 20, background: '#F5F5F7', borderRadius: 15, marginBottom: 30 }}>
+            <p style={{ fontSize: 13, color: '#1D1D1F', fontWeight: 600, margin: 0 }}>Need assistance or want to apply for Founder status?</p>
+            <a href="mailto:support@yourdomain.com" style={{ color: '#007AFF', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>Contact Network Admin</a>
+          </div>
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Sign Out</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -72,44 +86,47 @@ function App() {
             <SquaresFour size={20} weight={view === 'cockpit' ? "fill" : "bold"} />
             <span>Cockpit</span>
           </button>
-
           <button className={`nav-item ${view === 'tradelab' ? 'active' : ''}`} onClick={() => setView('tradelab')}>
             <Notebook size={20} weight={view === 'tradelab' ? "fill" : "bold"} />
             <span>Trade Lab</span>
           </button>
-
           <button className={`nav-item ${view === 'portfolio' ? 'active' : ''}`} onClick={() => setView('portfolio')}>
             <Briefcase size={20} weight={view === 'portfolio' ? "fill" : "bold"} />
             <span>Inventory</span>
           </button>
-
           <button className={`nav-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>
             <ChartLineUp size={20} weight={view === 'finance' ? "fill" : "bold"} />
             <span>Finance</span>
           </button>
 
-          {/* ADMIN LINK (Command Center) */}
           {isAdmin && (
-            <button 
-              className={`nav-item ${view === 'admin' ? 'active' : ''}`} 
-              onClick={() => setView('admin')} 
-              style={{ 
-                marginTop: 20, 
-                background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', 
-                color: view === 'admin' ? 'white' : '#007AFF',
-                border: view === 'admin' ? 'none' : '1px solid rgba(0,122,255,0.1)'
-              }}
-            >
+            <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF', border: view === 'admin' ? 'none' : '1px solid rgba(0,122,255,0.1)' }}>
               <ShieldCheck size={20} weight={view === 'admin' ? "fill" : "bold"} />
               <span>Command Center</span>
             </button>
           )}
         </nav>
 
-        <div className="sidebar-footer" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
-          <button className="nav-item" onClick={handleLogout} style={{ color: '#FF3B30' }}>
-            <SignOut size={20} weight="bold" />
-            <span>Sign Out</span>
+        {/* COMPACT FOOTER WITH SETTINGS & SIGN OUT NEXT TO EACH OTHER */}
+        <div className="sidebar-footer" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button 
+            className={`nav-item ${view === 'settings' ? 'active' : ''}`} 
+            onClick={() => setView('settings')}
+            style={{ padding: '8px', minWidth: 'unset', flex: 1, justifyContent: 'center' }}
+            title="Settings"
+          >
+            <Gear size={22} weight={view === 'settings' ? "fill" : "bold"} />
+          </button>
+          
+          <div style={{ width: 1, height: 20, background: 'rgba(0,0,0,0.05)' }}></div>
+
+          <button 
+            className="nav-item" 
+            onClick={handleLogout} 
+            style={{ color: '#FF3B30', padding: '8px', minWidth: 'unset', flex: 1, justifyContent: 'center' }}
+            title="Sign Out"
+          >
+            <SignOut size={22} weight="bold" />
           </button>
         </div>
       </aside>
@@ -128,20 +145,18 @@ function App() {
           <Briefcase size={24} weight={view === 'portfolio' ? "fill" : "regular"} />
           <span>Inventory</span>
         </button>
-        {isAdmin ? (
+        <button className={`tab-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
+          <Gear size={24} weight={view === 'settings' ? "fill" : "regular"} />
+          <span>Settings</span>
+        </button>
+        {isAdmin && (
           <button className={`tab-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')}>
             <ShieldCheck size={24} weight={view === 'admin' ? "fill" : "regular"} color="#007AFF" />
             <span>Admin</span>
           </button>
-        ) : (
-          <button className={`tab-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>
-            <ChartLineUp size={24} weight={view === 'finance' ? "fill" : "regular"} />
-            <span>Finance</span>
-          </button>
         )}
       </nav>
 
-      {/* MAIN CONTENT */}
       <main className="main">
         {view === 'cockpit' && <Dashboard />}
         {view === 'tradelab' && <TradeLab />}
