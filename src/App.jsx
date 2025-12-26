@@ -100,7 +100,6 @@ function App() {
             <span>Finance</span>
           </button>
 
-          {/* ADMIN ONLY: DESIGN LAB ACCESS */}
           {isAdmin && (
             <button 
                 className={`nav-item ${view === 'design-lab' ? 'active' : ''}`} 
@@ -165,13 +164,13 @@ function App() {
       </nav>
 
       <main className="main">
-        {view === 'cockpit' && <Dashboard />}
+        {/* BELANGRIJK: setView wordt nu meegegeven aan Dashboard */}
+        {view === 'cockpit' && <Dashboard setView={setView} />}
         {view === 'tradelab' && <TradeLab />}
         {view === 'portfolio' && <Portfolio />}
         {view === 'finance' && <Finance />}
         {view === 'settings' && <Settings />}
         {view === 'admin' && isAdmin && <Admin />}
-        {/* Render Design Lab only for Admin */}
         {view === 'design-lab' && isAdmin && <DesignLab />}
       </main>
     </div>

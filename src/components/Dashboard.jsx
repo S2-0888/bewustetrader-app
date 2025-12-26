@@ -4,7 +4,8 @@ import { collection, query, onSnapshot, orderBy, updateDoc, doc, addDoc } from '
 import { Trophy, Crown, Pulse, CaretRight, Layout, PlusCircle, Bank } from '@phosphor-icons/react';
 import * as W from './DashboardWidgets';
 
-export default function Dashboard() {
+// BELANGRIJK: We gebruiken { setView } omdat App.jsx dit aanstuurt
+export default function Dashboard({ setView }) {
   const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
@@ -42,11 +43,6 @@ export default function Dashboard() {
   useEffect(() => {
     localStorage.setItem('vaultStyle', vaultVersion);
   }, [vaultVersion]);
-
-  // Veilige navigatie methode
-  const goTo = (path) => {
-    window.location.href = path;
-  };
 
   const filteredTrades = trades.filter(t => {
     if (timeRange === 'ALL') return true;
@@ -118,23 +114,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* METRICS */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.7fr 1fr', gap: 15, marginBottom: 25 }}>
           <W.PerformanceWidget winrate={winrate} avgDiscipline={avgDiscipline} trades={closedTrades} isMobile={isMobile} />
           {!isMobile && <W.FormGuideWidget lastTrades={closedTrades.slice(-10)} />}
       </div>
 
-      {/* MOBILE QUICK ACTIONS */}
+      {/* MOBILE QUICK ACTIONS - NU CORRECT MET setView */}
       {isMobile && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 25 }}>
           <button 
-            onClick={() => goTo('/journal')}
+            onClick={() => setView('tradelab')}
             style={{ background: '#1C1C1E', color: 'white', border: 'none', padding: '14px', borderRadius: '16px', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
           >
             <PlusCircle size={20} weight="fill" /> LOG TRADE
           </button>
           <button 
-            onClick={() => goTo('/finance')}
+            onClick={() => setView('finance')}
             style={{ background: '#30D158', color: 'white', border: 'none', padding: '14px', borderRadius: '16px', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
           >
             <Bank size={20} weight="fill" /> FINANCE
@@ -149,7 +144,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ACTIVE VAULT HEADER */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <Pulse size={20} weight="bold" color="#1D1D1F" />
@@ -163,7 +157,7 @@ export default function Dashboard() {
                 ))}
             </div>
           ) : (
-            <span style={{ fontSize: 9, color: '#8E8E93', fontWeight: 800 }}>SWIPE →</span>
+            <span style={{ fontSize: 9, color: '#8E8E93', fontWeight: 800 }}>SWIPE LEFT →</span>
           )}
       </div>
       
@@ -178,10 +172,11 @@ export default function Dashboard() {
         paddingRight: isMobile ? '15px' : '0',
         overflowX: isMobile ? 'auto' : 'visible',
         scrollSnapType: isMobile ? 'x mandatory' : 'none',
-        paddingBottom: isMobile ? 15 : 0,
+        paddingBottom: 15,
         WebkitOverflowScrolling: 'touch',
         scrollbarWidth: 'none',
-        msOverflowStyle: 'none'
+        msOverflowStyle: 'none',
+        boxSizing: 'border-box'
       }}>
           {accounts.filter(a => a.stage !== 'Archived' && a.status === 'Active').map(acc => {
               const accTrades = trades.filter(t => t.accountId === acc.id && t.status === 'CLOSED');
