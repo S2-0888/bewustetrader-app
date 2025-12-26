@@ -63,7 +63,7 @@ export const SystemBroadcast = ({ message }) => {
   );
 };
 
-// --- WIDGET 1: PERFORMANCE ---
+// --- WIDGET 1: PERFORMANCE (AUTO-FIT & ALIGNMENT FIX) ---
 export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [], isMobile }) => {
   const totalR = trades.reduce((sum, t) => sum + (Number(t.pnl) / (Number(t.risk) || 1)), 0);
   const grossProfit = trades.reduce((sum, t) => t.pnl > 0 ? sum + Number(t.pnl) : sum, 0);
@@ -73,36 +73,43 @@ export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [],
   return (
     <div className="performance-capsule" style={{ 
       background: 'linear-gradient(135deg, #1C1C1E 0%, #0D0D0E 100%)', color: 'white', 
-      padding: isMobile ? '16px 24px' : '20px 35px', borderRadius: '24px', display: 'inline-flex', 
-      flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', border: '1px solid rgba(255,255,255,0.12)',
-      boxShadow: '0 12px 32px rgba(0,0,0,0.5)', gap: isMobile ? 20 : 40, minHeight: '100px', width: isMobile ? '100%' : 'fit-content'
+      padding: isMobile ? '20px' : '20px 35px', borderRadius: '24px', display: 'flex', 
+      flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', 
+      justifyContent: isMobile ? 'center' : 'space-between',
+      border: '1px solid rgba(255,255,255,0.12)',
+      boxShadow: '0 12px 32px rgba(0,0,0,0.5)', gap: isMobile ? 25 : 20, 
+      width: '100%', boxSizing: 'border-box'
     }}>
-      <div>
+      <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
         <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 4 }}>
-          CONSCIOUS GAIN <CoachingInfo title="R-MULTIPLE" text="Your true performance score measured in risk units." />
+          CONSCIOUS GAIN <CoachingInfo title="R-MULTIPLE" text="Your performance score measured in risk units." />
         </div>
-        <div style={{ fontSize: isMobile ? '42px' : '52px', fontWeight: 900, color: totalR >= 0 ? '#30D158' : '#FF453A', letterSpacing: '-2px', lineHeight: 1 }}>
+        <div style={{ fontSize: isMobile ? '42px' : '48px', fontWeight: 900, color: totalR >= 0 ? '#30D158' : '#FF453A', letterSpacing: '-2px', lineHeight: 1 }}>
           {totalR > 0 ? '+' : ''}{totalR.toFixed(1)}<span style={{ fontSize: '20px', opacity: 0.3, marginLeft: 4 }}>R</span>
         </div>
       </div>
-      {!isMobile && <div style={{ width: '1px', height: '45px', background: 'rgba(255,255,255,0.15)' }} />}
-      <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
+
+      {!isMobile && <div style={{ width: '1px', height: '40px', background: 'rgba(255,255,255,0.15)' }} />}
+
+      <div style={{ textAlign: 'center' }}>
         <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>
           ADHERENCE <CoachingInfo title="DISCIPLINE" text="Rules adherence level." />
         </div>
-        <div style={{ fontSize: '28px', fontWeight: 900, color: avgDiscipline >= 80 ? '#30D158' : '#FF9F0A', lineHeight: 1 }}>
+        <div style={{ fontSize: '24px', fontWeight: 900, color: avgDiscipline >= 80 ? '#30D158' : '#FF9F0A', lineHeight: 1 }}>
           {Number(avgDiscipline || 0).toFixed(0)}%
         </div>
       </div>
-      {!isMobile && <div style={{ width: '1px', height: '45px', background: 'rgba(255,255,255,0.15)' }} />}
-      <div style={{ display: 'flex', gap: 30 }}>
-        <div>
+
+      {!isMobile && <div style={{ width: '1px', height: '40px', background: 'rgba(255,255,255,0.15)' }} />}
+
+      <div style={{ display: 'flex', gap: isMobile ? 40 : 30 }}>
+        <div style={{ textAlign: 'center' }}>
             <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, marginBottom: 4 }}>PROFIT FACTOR</div>
-            <div style={{ fontSize: '24px', fontWeight: 800, color: '#FFFFFF' }}>{profitFactor}</div>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: '#FFFFFF' }}>{profitFactor}</div>
         </div>
-        <div>
+        <div style={{ textAlign: 'center' }}>
             <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, marginBottom: 4 }}>WINRATE</div>
-            <div style={{ fontSize: '24px', fontWeight: 800, color: '#FFFFFF' }}>{Number(winrate || 0).toFixed(0)}%</div>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: '#FFFFFF' }}>{Number(winrate || 0).toFixed(0)}%</div>
         </div>
       </div>
     </div>
@@ -152,7 +159,7 @@ export const ExpectancyWidget = ({ data = [], money }) => {
   );
 };
 
-// --- WIDGET 5: ACCOUNT CARD ---
+// --- WIDGET 5: ACCOUNT CARD (TINDER SWIPE OPTIMIZED) ---
 export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded, version = "V1" }) => {
   const getTheme = () => {
     if (isFunded) return { primary: '#FFD60A', bg: 'linear-gradient(145deg, #1C1C1E 0%, #2C2C2E 100%)', text: '#FFD60A' };
@@ -165,9 +172,14 @@ export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded,
   const isPositive = profitOrLoss >= 0;
   const remainingDD = acc.maxDrawdown - (acc.startBalance - balance);
 
+  const containerStyle = {
+    width: '100%',
+    boxSizing: 'border-box'
+  };
+
   if (version === "V1") {
     return (
-      <div style={{ padding: '25px', borderRadius: '28px', background: theme.bg, color: 'white', border: `1px solid rgba(255,255,255,0.08)`, position: 'relative', overflow: 'hidden', minHeight: '220px', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ ...containerStyle, padding: '25px', borderRadius: '28px', background: theme.bg, color: 'white', border: `1px solid rgba(255,255,255,0.08)`, position: 'relative', overflow: 'hidden', minHeight: '220px', display: 'flex', flexDirection: 'column' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: isPositive ? '#30D158' : '#FF3B30', opacity: 0.6 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
@@ -190,7 +202,7 @@ export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded,
 
   if (version === "V2") {
     return (
-      <div style={{ padding: '25px', background: '#FFF', borderRadius: '24px', border: '1px solid #E5E5EA' }}>
+      <div style={{ ...containerStyle, padding: '25px', background: '#FFF', borderRadius: '24px', border: '1px solid #E5E5EA' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
            <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ width: 40, height: 40, borderRadius: '12px', background: '#F2F2F7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pulse size={22} color={isPositive ? '#30D158' : '#FF3B30'} /></div>
@@ -207,14 +219,38 @@ export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded,
   }
 
   return (
-    <div style={{ padding: '18px', background: '#1C1C1E', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: 15 }}>
-      <div style={{ width: 45, height: 45, borderRadius: '14px', background: theme.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Scales size={22} color="white" /></div>
-      <div style={{ flex: 1 }}><div style={{ fontSize: '10px', color: 'white' }}>{acc.firm} <span style={{opacity:0.4}}>#{acc.accountNumber}</span></div><div style={{ fontSize: '18px', color: theme.primary, fontWeight: 900 }}>{money(balance)}</div></div>
+    <div style={{ 
+      ...containerStyle, 
+      padding: '20px', 
+      background: 'linear-gradient(135deg, #1C1C1E 0%, #0A0A0B 100%)', 
+      borderRadius: '24px', 
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: 15,
+      border: '1px solid rgba(255,255,255,0.08)',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+    }}>
+      <div style={{ 
+        width: 50, height: 50, borderRadius: '15px', 
+        background: isPositive ? 'rgba(48, 209, 88, 0.1)' : 'rgba(255, 69, 58, 0.1)', 
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        border: `1px solid ${isPositive ? 'rgba(48, 209, 88, 0.2)' : 'rgba(255, 69, 58, 0.2)'}`
+      }}>
+        <Scales size={24} color={isPositive ? '#30D158' : '#FF453A'} weight="duotone" />
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+           <div style={{ fontSize: '11px', color: '#8E8E93', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{acc.firm}</div>
+           <div style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', color: theme.primary, fontWeight: 800 }}>{acc.stage?.toUpperCase()}</div>
+        </div>
+        <div style={{ fontSize: '22px', color: '#FFFFFF', fontWeight: 900, fontFamily: 'monospace', letterSpacing: '-0.5px' }}>{money(balance)}</div>
+      </div>
+      <CaretRight size={18} color="rgba(255,255,255,0.2)" weight="bold" />
     </div>
   );
 };
 
-// --- WIDGET 8: EXECUTION BLUEPRINT (Short-Inverse) ---
+// --- WIDGET 8: EXECUTION BLUEPRINT ---
 export const ExecutionBlueprintWidget = ({ trades = [] }) => {
   const calculateMetrics = (subset) => {
     if (subset.length === 0) return { heat: 0, plan: 0, conscious: 0 };
@@ -257,7 +293,7 @@ export const ExecutionBlueprintWidget = ({ trades = [] }) => {
               <div style={{ width: '2px', height: `${Math.max(stats.heat * 40, 5)}px`, background: '#FF3B30', opacity: 0.8 }} />
               <div style={{ width: '30px', height: '1px', borderBottom: '2px dashed rgba(255, 59, 48, 0.2)' }} />
               <div style={{ width: '24px', height: `${Math.max(stats.plan * 70, 10)}px`, background: stats.plan > 0.7 ? bodyColor : '#8E8E93', borderRadius: '4px', zIndex: 2 }} />
-              <div style={{ width: '2px', height: '30px', background: '#E5E5EA', position: 'relative', opacity: 0.5 }}><div style={{ position: 'absolute', bottom: 0, left: '-4px', width: '10px', height: '2px', background: '#E5E5EA' }} /></div>
+              <div style={{ width: '2px', height: '30px', background: '#E5E5EA', position: 'relative', opacity: 0.5 }}><div style={{ position: 'absolute', bottom: 0, left: '-4px', width: '100%', height: '2px', background: '#E5E5EA' }} /></div>
             </>
           ) : (
             <>

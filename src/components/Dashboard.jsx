@@ -100,7 +100,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
+    <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100, overflowX: 'hidden' }}>
       
       <W.SystemBroadcast message={userProfile?.systemBroadcast} />
       
@@ -167,11 +167,15 @@ export default function Dashboard() {
           )}
       </div>
       
-      {/* TINDER-STYLE SWIPE CONTAINER */}
+      {/* VERBETERDE SWIPE CONTAINER (Full-Bleed Tinder-style) */}
       <div style={{ 
         display: isMobile ? 'flex' : 'grid', 
         gridTemplateColumns: isMobile ? 'none' : vaultVersion === 'V3' ? 'repeat(auto-fill, minmax(280px, 1fr))' : 'repeat(auto-fill, minmax(320px, 1fr))', 
-        gap: 15,
+        gap: isMobile ? 10 : 15,
+        width: isMobile ? 'calc(100% + 30px)' : '100%', 
+        marginLeft: isMobile ? '-15px' : '0', 
+        paddingLeft: isMobile ? '15px' : '0',
+        paddingRight: isMobile ? '15px' : '0',
         overflowX: isMobile ? 'auto' : 'visible',
         scrollSnapType: isMobile ? 'x mandatory' : 'none',
         paddingBottom: isMobile ? 15 : 0,
@@ -187,11 +191,12 @@ export default function Dashboard() {
 
               return (
                 <div key={acc.id} style={{ 
-                  flex: isMobile ? '0 0 90%' : 'none', 
+                  flex: isMobile ? '0 0 88%' : 'none', 
                   scrollSnapAlign: 'center',
                   display: 'flex', 
                   flexDirection: 'column', 
-                  gap: 10 
+                  gap: 10,
+                  marginRight: isMobile ? '10px' : '0'
                 }}>
                    <W.AccountCard 
                       acc={acc} 
