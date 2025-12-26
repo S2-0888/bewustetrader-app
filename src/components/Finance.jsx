@@ -20,7 +20,7 @@ export default function Finance() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // --- PAGINERING & SORTEER STATES ---
+  // --- PAGINERING & SORTEER STATES (Desktop) ---
   const ITEMS_PER_PAGE = 5;
   const [payoutPage, setPayoutPage] = useState(1);
   const [accountPage, setAccountPage] = useState(1);
@@ -86,7 +86,7 @@ export default function Finance() {
     return isNaN(d) ? 'Pending' : d.toLocaleDateString('nl-NL', {day:'2-digit', month:'2-digit', year:'numeric'});
   };
 
-  // --- SORTEER EN PAGINERING LOGICA ---
+  // --- DESKTOP LOGICA ---
   const sortedPayouts = [...payoutsList].sort((a, b) => {
     const dA = new Date(a.date); const dB = new Date(b.date);
     return payoutSortDir === 'desc' ? dB - dA : dA - dB;
@@ -99,7 +99,6 @@ export default function Finance() {
 
   const displayedPayouts = sortedPayouts.slice((payoutPage - 1) * ITEMS_PER_PAGE, payoutPage * ITEMS_PER_PAGE);
   const displayedAccounts = sortedAccounts.slice((accountPage - 1) * ITEMS_PER_PAGE, accountPage * ITEMS_PER_PAGE);
-
   const payoutTotalPages = Math.ceil(sortedPayouts.length / ITEMS_PER_PAGE);
   const accountTotalPages = Math.ceil(sortedAccounts.length / ITEMS_PER_PAGE);
 
@@ -120,84 +119,106 @@ export default function Finance() {
 
   const COLORS = ['#5856D6', '#AF52DE', '#30D158', '#FF9F0A', '#FF453A'];
 
+  // --- MOBIELE WEERGAVE (Minimalistisch) ---
+  if (isMobile) {
+    return (
+      <div style={{ padding: '15px', paddingBottom: 100 }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 900, marginBottom: 20 }}>Finance</h1>
+
+        <div style={{ background: 'linear-gradient(135deg, #1C1C1E 0%, #0D0D0E 100%)', padding: '30px 20px', borderRadius: '28px', color: 'white', marginBottom: 20 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, letterSpacing: '1px', marginBottom: 8 }}>NET REALIZED PROFIT</div>
+            <div style={{ fontSize: '42px', fontWeight: 900, color: (metrics.payouts - metrics.invested) >= 0 ? '#30D158' : '#FF453A', lineHeight: 1 }}>
+              {fmt(metrics.payouts - metrics.invested)}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 30, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 20 }}>
+            <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', marginBottom: 5 }}>COSTS</div><div style={{ fontSize: '20px', fontWeight: 800 }}>{fmt(metrics.invested)}</div></div>
+            <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', marginBottom: 5 }}>HARVEST</div><div style={{ fontSize: '20px', fontWeight: 800, color: '#30D158' }}>{fmt(metrics.payouts)}</div></div>
+          </div>
+          <button onClick={() => setShowPayoutForm(!showPayoutForm)} style={{ width: '100%', marginTop: 25, background: showPayoutForm ? 'rgba(255,255,255,0.1)' : '#30D158', color: 'white', border: 'none', padding: '16px', borderRadius: '16px', fontWeight: 800 }}>
+            {showPayoutForm ? 'CANCEL' : '+ LOG REWARD'}
+          </button>
+        </div>
+
+        {showPayoutForm && (
+          <div className="bento-card" style={{ padding: 20, border: '2px solid #30D158', background: 'white' }}>
+            <form onSubmit={handleAddPayout} style={{ display: 'grid', gap: 15 }}>
+              <input style={{ fontSize: '16px', height: '48px' }} className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} />
+              <select style={{ fontSize: '16px', height: '48px' }} className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
+                <option value="">Select Account...</option>
+                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}
+              </select>
+              <input style={{ fontSize: '16px', height: '48px' }} className="apple-input" type="number" inputMode="decimal" placeholder="Amount" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} />
+              <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ background: '#30D158', height: 50, borderRadius: 12 }}>CONFIRM HARVEST</button>
+            </form>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- DESKTOP WEERGAVE (Volledige code) ---
   return (
-    <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
+    <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
       
       <header style={{ marginBottom: 30, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: isMobile ? '28px' : '32px', fontWeight: 900, letterSpacing: '-1.2px', margin: 0 }}>Finance Control</h1>
+          <h1 style={{ fontSize: '32px', fontWeight: 900, letterSpacing: '-1.2px', margin: 0 }}>Finance Control</h1>
           <p style={{ color: '#86868B', fontSize: '14px' }}>Strategic growth & capital harvest.</p>
         </div>
-        {!isMobile && (
-          <button 
-            onClick={() => setShowPayoutForm(!showPayoutForm)}
-            style={{ 
-              background: '#1D1D1F', color: 'white', border: 'none', padding: '12px 24px', 
-              borderRadius: '14px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-            }}
-          >
-            {showPayoutForm ? <X size={18} weight="bold"/> : <Plus size={18} weight="bold"/>}
-            {showPayoutForm ? 'Cancel' : 'Log New Payout'}
-          </button>
-        )}
+        <button 
+          onClick={() => setShowPayoutForm(!showPayoutForm)}
+          style={{ 
+            background: '#1D1D1F', color: 'white', border: 'none', padding: '12px 24px', 
+            borderRadius: '14px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+          }}
+        >
+          {showPayoutForm ? <X size={18} weight="bold"/> : <Plus size={18} weight="bold"/>}
+          {showPayoutForm ? 'Cancel' : 'Log New Payout'}
+        </button>
       </header>
 
       {/* WEALTH CAPSULE */}
-      <div style={{ background: 'linear-gradient(135deg, #1C1C1E 0%, #0D0D0E 100%)', padding: isMobile ? '30px 25px' : '35px 50px', borderRadius: '32px', color: 'white', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 2 }}>
-            <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
+      <div style={{ background: 'linear-gradient(135deg, #1C1C1E 0%, #0D0D0E 100%)', padding: '35px 50px', borderRadius: '32px', color: 'white', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 2 }}>
+            <div>
               <div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, letterSpacing: '1.5px', marginBottom: 8 }}>NET REALIZED PROFIT</div>
-              <div style={{ fontSize: isMobile ? '42px' : '56px', fontWeight: 900, color: (metrics.payouts - metrics.invested) >= 0 ? '#30D158' : '#FF453A', letterSpacing: '-2px', lineHeight: 1 }}>
+              <div style={{ fontSize: '56px', fontWeight: 900, color: (metrics.payouts - metrics.invested) >= 0 ? '#30D158' : '#FF453A', letterSpacing: '-2px', lineHeight: 1 }}>
                   {fmt(metrics.payouts - metrics.invested)}
               </div>
             </div>
-            
-            <div style={{ display: 'flex', gap: isMobile ? 30 : 50, marginTop: isMobile ? 30 : 0 }}>
-              <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, marginBottom: 8 }}>TOTAL COSTS</div><div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800 }}>{fmt(metrics.invested)}</div></div>
-              <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, marginBottom: 8 }}>TOTAL HARVEST</div><div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, color: '#30D158' }}>{fmt(metrics.payouts)}</div></div>
+            <div style={{ display: 'flex', gap: 50 }}>
+              <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, marginBottom: 8 }}>TOTAL COSTS</div><div style={{ fontSize: '32px', fontWeight: 800 }}>{fmt(metrics.invested)}</div></div>
+              <div style={{ textAlign: 'center' }}><div style={{ color: '#8E8E93', fontSize: '10px', fontWeight: 900, marginBottom: 8 }}>TOTAL HARVEST</div><div style={{ fontSize: '32px', fontWeight: 800, color: '#30D158' }}>{fmt(metrics.payouts)}</div></div>
             </div>
         </div>
-        
-        {/* Mobile Action Button inside Capsule */}
-        {isMobile && (
-          <button 
-            onClick={() => setShowPayoutForm(!showPayoutForm)}
-            style={{ width: '100%', marginTop: 25, background: showPayoutForm ? 'rgba(255,255,255,0.1)' : '#30D158', color: 'white', border: 'none', padding: '14px', borderRadius: '16px', fontWeight: 800, fontSize: '13px', transition: '0.2s' }}
-          >
-            {showPayoutForm ? 'CANCEL LOGGING' : '+ LOG REWARD'}
-          </button>
-        )}
       </div>
 
       {/* QUICK ACTION: HARVEST FORM */}
       {showPayoutForm && (
-        <div className="bento-card" style={{ marginBottom: 30, padding: isMobile ? 20 : 30, border: '2px solid #30D158', background: 'white' }}>
+        <div className="bento-card" style={{ marginBottom: 30, padding: 30, border: '2px solid #30D158', background: 'white' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
             <Money size={24} weight="fill" color="#30D158" />
             <h3 style={{ margin: 0, fontWeight: 800 }}>Harvest Rewards</h3>
           </div>
-          
-          {accounts.length > 0 ? (
-            <form onSubmit={handleAddPayout} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 2fr 1.2fr auto', gap: 15, alignItems: 'end' }}>
-                <div className="input-group"><label className="input-label">Date</label><input className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} /></div>
-                <div className="input-group"><label className="input-label">Source Account</label>
-                    <select className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
-                        <option value="">Select account...</option>
-                        {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber} ({acc.size ? acc.size/1000 + 'k' : '?'})</option>)}
-                    </select>
-                </div>
-                <div className="input-group"><label className="input-label">Amount</label><input className="apple-input" type="number" placeholder="0.00" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} /></div>
-                <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ height: 44, background: '#30D158' }}>Log Reward</button>
-            </form>
-          ) : (
-            <p style={{ color: '#8E8E93', fontSize: '13px' }}>No accounts found. Please import your challenges first.</p>
-          )}
+          <form onSubmit={handleAddPayout} style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr 1.2fr auto', gap: 15, alignItems: 'end' }}>
+              <div className="input-group"><label className="input-label">Date</label><input className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} /></div>
+              <div className="input-group"><label className="input-label">Source Account</label>
+                  <select className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
+                      <option value="">Select account...</option>
+                      {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber} ({acc.size ? acc.size/1000 + 'k' : '?'})</option>)}
+                  </select>
+              </div>
+              <div className="input-group"><label className="input-label">Amount</label><input className="apple-input" type="number" placeholder="0.00" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} /></div>
+              <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ height: 44, background: '#30D158' }}>Log Reward</button>
+          </form>
         </div>
       )}
 
       {/* CHARTS GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.6fr 1fr', gap: 20, marginBottom: 30 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 20, marginBottom: 30 }}>
         <div className="bento-card" style={{ padding: 30 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: 30 }}><TrendUp size={20} weight="bold" color="#007AFF"/><span style={{ fontSize: 13, fontWeight: 800 }}>YEARLY MOMENTUM</span></div>
           <ResponsiveContainer width="100%" height={250}>
@@ -223,37 +244,23 @@ export default function Finance() {
               <Tooltip formatter={(v) => fmt(v)} />
             </PieChart>
           </ResponsiveContainer>
-          <div style={{ marginTop: 15, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {platformData.map((p, i) => (
-              <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS[i % COLORS.length] }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#1D1D1F' }}>{p.name}: <span style={{ color: '#8E8E93' }}>{fmt(p.profit)}</span></div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
       <W.FinancialHarvestWidget payouts={payoutsList} invested={metrics.invested} money={fmt} />
 
-      {/* DUAL HISTORY GRID WITH PAGINATION */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginTop: 30 }}>
+      {/* DUAL HISTORY GRID */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 30 }}>
         
-        {/* LEFT: PAYOUT REVENUE */}
+        {/* PAYOUT REVENUE */}
         <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center', background: 'rgba(48, 209, 88, 0.03)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <Bank size={20} weight="fill" color="#30D158"/>
-              <span style={{ fontSize: 13, fontWeight: 900 }}>PAYOUT REVENUE</span>
-            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}><Bank size={20} weight="fill" color="#30D158"/><span style={{ fontSize: 13, fontWeight: 900 }}>PAYOUT REVENUE</span></div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="apple-table">
+          <table className="apple-table">
               <thead>
                 <tr>
-                  <th onClick={() => setPayoutSortDir(payoutSortDir === 'desc' ? 'asc' : 'desc')} style={{ cursor: 'pointer' }}>
-                    Date {payoutSortDir === 'desc' ? <ArrowDown size={10}/> : <ArrowUp size={10}/>}
-                  </th>
+                  <th onClick={() => setPayoutSortDir(payoutSortDir === 'desc' ? 'asc' : 'desc')} style={{ cursor: 'pointer' }}>Date {payoutSortDir === 'desc' ? <ArrowDown size={10}/> : <ArrowUp size={10}/>}</th>
                   <th>Account Details</th>
                   <th style={{ textAlign: 'right' }}>Value</th>
                 </tr>
@@ -261,64 +268,47 @@ export default function Finance() {
               <tbody>
                 {displayedPayouts.map(pay => (
                   <tr key={pay.id} className="hover-row">
-                    <td style={{ fontSize: 11, color: '#86868B', whiteSpace: 'nowrap' }}>{safeDate(pay.date)}</td>
-                    <td>
-                      <div style={{ fontWeight: 700, fontSize: 12 }}>{pay.source}</div>
-                      <div style={{ fontSize: 10, color: '#86868B', fontFamily: 'monospace' }}>ID: {pay.accountNumber || 'N/A'}</div>
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 800, color: '#30D158', fontSize: 12 }}>+{fmt(pay.convertedAmount)}</td>
+                    <td style={{ fontSize: 11, color: '#86868B' }}>{safeDate(pay.date)}</td>
+                    <td><div style={{ fontWeight: 700, fontSize: 12 }}>{pay.source}</div><div style={{ fontSize: 10, color: '#86868B' }}>ID: {pay.accountNumber}</div></td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, color: '#30D158' }}>+{fmt(pay.convertedAmount)}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-          <div style={{ padding: '12px 24px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 15, borderTop: '1px solid #F2F2F7', background: '#FBFBFC' }}>
-            <button disabled={payoutPage === 1} onClick={() => setPayoutPage(payoutPage - 1)} style={{ background: 'none', border: 'none', cursor: payoutPage === 1 ? 'default' : 'pointer', opacity: payoutPage === 1 ? 0.3 : 1 }}><CaretLeft size={16} weight="bold"/></button>
-            <span style={{ fontSize: 10, fontWeight: 800, color: '#8E8E93' }}>PAGE {payoutPage} / {payoutTotalPages || 1}</span>
-            <button disabled={payoutPage === payoutTotalPages} onClick={() => setPayoutPage(payoutPage + 1)} style={{ background: 'none', border: 'none', cursor: payoutPage === payoutTotalPages ? 'default' : 'pointer', opacity: payoutPage === payoutTotalPages ? 0.3 : 1 }}><CaretRight size={16} weight="bold"/></button>
+          </table>
+          <div style={{ padding: '12px 24px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 15, borderTop: '1px solid #F2F2F7' }}>
+            <button disabled={payoutPage === 1} onClick={() => setPayoutPage(payoutPage - 1)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CaretLeft size={16}/></button>
+            <span style={{ fontSize: 10, fontWeight: 800 }}>PAGE {payoutPage} / {payoutTotalPages}</span>
+            <button disabled={payoutPage === payoutTotalPages} onClick={() => setPayoutPage(payoutPage + 1)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CaretRight size={16}/></button>
           </div>
         </div>
 
-        {/* RIGHT: CAPITAL ALLOCATION */}
+        {/* CAPITAL ALLOCATION */}
         <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <Receipt size={20} weight="fill" color="#8E8E93"/>
-              <span style={{ fontSize: 13, fontWeight: 900 }}>CAPITAL ALLOCATION</span>
-            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}><Receipt size={20} weight="fill" color="#8E8E93"/><span style={{ fontSize: 13, fontWeight: 900 }}>CAPITAL ALLOCATION</span></div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="apple-table">
+          <table className="apple-table">
               <thead>
                 <tr>
-                  <th onClick={() => setAccountSortDir(accountSortDir === 'desc' ? 'asc' : 'desc')} style={{ cursor: 'pointer' }}>
-                    Date {accountSortDir === 'desc' ? <ArrowDown size={10}/> : <ArrowUp size={10}/>}
-                  </th>
+                  <th onClick={() => setAccountSortDir(accountSortDir === 'desc' ? 'asc' : 'desc')} style={{ cursor: 'pointer' }}>Date {accountSortDir === 'desc' ? <ArrowDown size={10}/> : <ArrowUp size={10}/>}</th>
                   <th>Investment Detail</th>
                   <th style={{ textAlign: 'right' }}>Cost</th>
                 </tr>
               </thead>
               <tbody>
                 {displayedAccounts.map(acc => (
-                  <tr key={acc.id} className="hover-row" style={{ opacity: acc.stage === 'Archived' ? 0.7 : 1 }}>
-                    <td style={{ fontSize: 11, color: '#8E8E93', whiteSpace: 'nowrap' }}>{safeDate(acc.purchaseDate)}</td>
-                    <td>
-                      <div style={{ fontWeight: 700, fontSize: 12 }}>{acc.firm} <span style={{ fontWeight: 500, color: '#8E8E93' }}>• {acc.size ? (acc.size/1000 + 'k') : 'N/A'}</span></div>
-                      <div style={{ display: 'flex', alignItems:'center', gap: 6, marginTop: 2 }}>
-                        <span style={{ fontSize: 8, padding: '2px 5px', borderRadius: 4, background: '#F2F2F7', color: '#8E8E93', fontWeight: 800 }}>{acc.stage?.toUpperCase()}</span>
-                        <span style={{ fontSize: 9, color: '#C7C7CC', fontFamily: 'monospace' }}>#{acc.accountNumber?.slice(-6)}</span>
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12 }}>{fmt(acc.originalPrice || acc.cost)}</td>
+                  <tr key={acc.id} className="hover-row">
+                    <td style={{ fontSize: 11, color: '#8E8E93' }}>{safeDate(acc.purchaseDate)}</td>
+                    <td><div style={{ fontWeight: 700, fontSize: 12 }}>{acc.firm}</div><div style={{ fontSize: 10, color: '#86868B' }}>{acc.stage}</div></td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(acc.originalPrice || acc.cost)}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-          <div style={{ padding: '12px 24px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 15, borderTop: '1px solid #F2F2F7', background: '#FBFBFC' }}>
-            <button disabled={accountPage === 1} onClick={() => setAccountPage(accountPage - 1)} style={{ background: 'none', border: 'none', cursor: accountPage === 1 ? 'default' : 'pointer', opacity: accountPage === 1 ? 0.3 : 1 }}><CaretLeft size={16} weight="bold"/></button>
-            <span style={{ fontSize: 10, fontWeight: 800, color: '#8E8E93' }}>PAGE {accountPage} / {accountTotalPages || 1}</span>
-            <button disabled={accountPage === accountTotalPages} onClick={() => setAccountPage(accountTotalPages + 1)} style={{ background: 'none', border: 'none', cursor: accountPage === accountTotalPages ? 'default' : 'pointer', opacity: accountPage === accountTotalPages ? 0.3 : 1 }}><CaretRight size={16} weight="bold"/></button>
+          </table>
+          <div style={{ padding: '12px 24px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 15, borderTop: '1px solid #F2F2F7' }}>
+            <button disabled={accountPage === 1} onClick={() => setAccountPage(accountPage - 1)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CaretLeft size={16}/></button>
+            <span style={{ fontSize: 10, fontWeight: 800 }}>PAGE {accountPage} / {accountTotalPages}</span>
+            <button disabled={accountPage === accountTotalPages} onClick={() => setAccountPage(accountPage + 1)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CaretRight size={16}/></button>
           </div>
         </div>
 

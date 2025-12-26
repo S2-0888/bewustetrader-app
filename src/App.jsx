@@ -22,7 +22,13 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
 
+  // --- VOEG DIT TOE VOOR DE DESKTOP/MOBILE CHECK ---
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
   useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+
     if (user) {
       setIsProfileLoading(true);
       const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
@@ -31,12 +37,17 @@ function App() {
         }
         setIsProfileLoading(false);
       });
-      return () => unsub();
+      return () => {
+        unsub();
+        window.removeEventListener('resize', handleResize);
+      };
     } else {
       setIsProfileLoading(false);
       setUserProfile(null);
     }
+    return () => window.removeEventListener('resize', handleResize);
   }, [user]);
+  // ------------------------------------------------
 
   if (loading || (user && isProfileLoading)) return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7', fontFamily: 'sans-serif' }}>
@@ -147,24 +158,21 @@ function App() {
         </div>
       </aside>
 
-      {/* MOBIELE TAB BAR */}
-      <nav className="mobile-tab-bar">
-        <button className={`tab-item ${view === 'cockpit' ? 'active' : ''}`} onClick={() => setView('cockpit')}>
-          <SquaresFour size={24} weight={view === 'cockpit' ? "fill" : "regular"} />
-          <span>Cockpit</span>
-        </button>
-        <button className={`tab-item ${view === 'tradelab' ? 'active' : ''}`} onClick={() => setView('tradelab')}>
-          <Notebook size={24} weight={view === 'tradelab' ? "fill" : "regular"} />
-          <span>Lab</span>
-        </button>
-        <button className={`tab-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
-          <Gear size={24} weight={view === 'settings' ? "fill" : "regular"} />
-          <span>Settings</span>
-        </button>
-      </nav>
+      {/* --- GEWIJZIGDE MOBIELE TAB BAR: Alleen cockpit & alleen op mobiel --- */}
+      {isMobile && (
+        <nav className="mobile-tab-bar" style={{ display: 'flex', justifyContent: 'center', padding: '0 20px' }}>
+          <button 
+            className={`tab-item ${view === 'cockpit' ? 'active' : ''}`} 
+            onClick={() => setView('cockpit')}
+            style={{ width: '80px', flex: 'none' }}
+          >
+            <SquaresFour size={28} weight={view === 'cockpit' ? "fill" : "regular"} />
+            <span style={{ fontSize: '10px', fontWeight: 800 }}>Cockpit</span>
+          </button>
+        </nav>
+      )}
 
       <main className="main">
-        {/* BELANGRIJK: setView wordt nu meegegeven aan Dashboard */}
         {view === 'cockpit' && <Dashboard setView={setView} />}
         {view === 'tradelab' && <TradeLab />}
         {view === 'portfolio' && <Portfolio />}

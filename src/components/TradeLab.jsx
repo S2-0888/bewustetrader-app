@@ -54,7 +54,10 @@ export default function TradeLab() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [isProMode, setIsProMode] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [showPriceFields, setShowPriceFields] = useState(false); 
+  
+  // FIX: Standaard uitgeklapt op mobiel
+  const [showPriceFields, setShowPriceFields] = useState(window.innerWidth < 768); 
+  
   const [editingTrade, setEditingTrade] = useState(null);
   const [closingTrade, setClosingTrade] = useState(null); 
   const [closePnl, setClosePnl] = useState('');
@@ -69,7 +72,11 @@ export default function TradeLab() {
   });
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+        const mobile = window.innerWidth < 768;
+        setIsMobile(mobile);
+        if (mobile) setShowPriceFields(true);
+    };
     window.addEventListener('resize', handleResize);
     const user = auth.currentUser;
     if (!user) return;
@@ -125,7 +132,6 @@ export default function TradeLab() {
   const executeCloseTrade = async (e) => {
     e.preventDefault();
     if (!closingTrade) return;
-
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
         status: 'CLOSED',
         pnl: Number(closePnl),
@@ -133,9 +139,7 @@ export default function TradeLab() {
         actualExits: [{ price: Number(closeExitPrice) }],
         closedAt: new Date()
     });
-    setClosingTrade(null);
-    setClosePnl('');
-    setCloseExitPrice('');
+    setClosingTrade(null); setClosePnl(''); setCloseExitPrice('');
   };
 
   const handleUpdateTrade = async (e) => {
@@ -174,13 +178,18 @@ export default function TradeLab() {
     setEditingTrade(null);
   };
 
+  const mobileInputStyle = { fontSize: '16px', height: '50px' };
+
   return (
-    <div style={{ padding: isMobile ? '20px 15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
+    <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
       {/* HEADER */}
-      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'end' }}>
-        <div><h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1><p style={{ color: '#86868B', fontSize: 14 }}>Operations & Review</p></div>
-        <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : '#F2F2F7', padding:'6px 12px', borderRadius:12 }}>
+      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+            <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1>
+            {!isMobile && <p style={{ color: '#86868B', fontSize: 14 }}>Operations & Review</p>}
+        </div>
+        <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : '#F2F2F7', padding:'8px 12px', borderRadius:14 }}>
             {isProMode ? <Blueprint size={18} color="#007AFF" /> : <Lightning size={18} color="#86868B" />}
             <span style={{ fontSize:10, fontWeight:800, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'ADVANCED' : 'LIGHTNING'}</span>
         </div>
@@ -188,68 +197,68 @@ export default function TradeLab() {
 
       {/* LIGHTNING INPUT PANEL */}
       {!isProMode && (
-        <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: 25 }}>
+        <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: isMobile ? 20 : 25 }}>
           <form onSubmit={handleSimpleOpen}>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr', gap: 30 }}>
                   <div>
                       <div className="label-xs" style={{ marginBottom: 15, color: '#007AFF' }}>QUICK LOG</div>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15 }}>
-                          <input className="apple-input" placeholder="Ticker" value={form.pair} onChange={e => setForm({...form, pair: e.target.value.toUpperCase()})} required />
-                          <select className="apple-input" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required>
+                          <input style={isMobile ? mobileInputStyle : {}} className="apple-input" placeholder="Ticker" value={form.pair} onChange={e => setForm({...form, pair: e.target.value.toUpperCase()})} required />
+                          <select style={isMobile ? mobileInputStyle : {}} className="apple-input" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required>
                               <option value="">Account...</option>
                               {accounts.filter(a => a.status === 'Active').map(acc => (<option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber}</option>))}
                           </select>
                       </div>
                       
                       <div style={{ marginBottom: 15, background: '#F5F5F7', padding: '12px', borderRadius: 12 }}>
-                        <div onClick={() => setShowPriceFields(!showPriceFields)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                        <div onClick={() => !isMobile && setShowPriceFields(!showPriceFields)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor: isMobile ? 'default' : 'pointer' }}>
                             <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700 }}>
                                 <Scales size={18} color="#007AFF" /> PRICE ARCHITECTURE
                             </div>
-                            <CaretDown size={16} style={{ transform: showPriceFields ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
+                            {!isMobile && <CaretDown size={16} style={{ transform: showPriceFields ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />}
                         </div>
                         
                         {showPriceFields && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 15 }}>
-                                <div className="input-group"><label className="input-label" style={{fontSize:9}}>ENTRY</label><input type="number" step="any" className="apple-input" value={form.entryPrice} onChange={e => setForm({...form, entryPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label" style={{fontSize:9, color:'#FF3B30'}}>STOP LOSS</label><input type="number" step="any" className="apple-input" value={form.slPrice} onChange={e => setForm({...form, slPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label" style={{fontSize:9, color:'#30D158'}}>TARGET (TP)</label><input type="number" step="any" className="apple-input" value={form.tpPrice} onChange={e => setForm({...form, tpPrice: e.target.value})} /></div>
+                                <input style={isMobile ? {fontSize:16} : {}} type="number" step="any" className="apple-input" placeholder="Entry" value={form.entryPrice} onChange={e => setForm({...form, entryPrice: e.target.value})} />
+                                <input style={isMobile ? {fontSize:16} : {}} type="number" step="any" className="apple-input" placeholder="SL" value={form.slPrice} onChange={e => setForm({...form, slPrice: e.target.value})} />
+                                <input style={isMobile ? {fontSize:16} : {}} type="number" step="any" className="apple-input" placeholder="TP" value={form.tpPrice} onChange={e => setForm({...form, tpPrice: e.target.value})} />
                             </div>
                         )}
                       </div>
 
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15 }}>
-                          <input type="number" step="any" placeholder="Risk Amount ($)" className="apple-input" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required />
-                          <div style={{ display:'flex', height: 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}>
+                          <input style={isMobile ? mobileInputStyle : {}} type="number" step="any" placeholder="Risk Amount ($)" className="apple-input" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required />
+                          <div style={{ display:'flex', height: isMobile ? 50 : 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}>
                                 <button type="button" onClick={() => setForm({...form, direction: 'LONG'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'LONG' ? 'white' : 'transparent', color: form.direction === 'LONG' ? '#30D158' : '#86868B' }}>LONG</button>
                                 <button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button>
                           </div>
                       </div>
+                      <button type="submit" className="btn-primary" style={{ width:'100%', height: isMobile ? 55 : 44, marginTop: 15, borderRadius: 14 }}>OPEN POSITION</button>
                   </div>
-                  <div style={{ background: '#F9F9F9', borderRadius: 16, padding: 20 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 10 }}>
-                          <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', fontSize:13, fontWeight:700 }}>
-                            <input type="checkbox" checked={form.isAligned} onChange={e => handleAlignedToggle(e.target.checked)} />
-                            Aligned with Plan?
-                          </label>
-                          <div style={{ display: 'flex', gap: 10, alignItems:'center' }}>
+                  {!isMobile && (
+                    <div style={{ background: '#F9F9F9', borderRadius: 16, padding: 20 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 10 }}>
+                            <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', fontSize:13, fontWeight:700 }}>
+                              <input type="checkbox" checked={form.isAligned} onChange={e => handleAlignedToggle(e.target.checked)} />
+                              Aligned with Plan?
+                            </label>
                             <CaretDown size={18} style={{ cursor:'pointer', transform: showRules ? 'rotate(180deg)' : 'none', transition: '0.2s' }} onClick={() => setShowRules(!showRules)} />
-                          </div>
-                      </div>
-                      {showRules && (
-                          <div style={{ display:'grid', gap:8, marginBottom: 15, background: 'white', padding: 10, borderRadius: 10 }}>
-                              {(config.rules || []).map(r => (
-                                  <label key={r} style={{ fontSize:11, display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
-                                      <input type="checkbox" checked={form.checkedRules.includes(r)} onChange={() => {
-                                          const next = form.checkedRules.includes(r) ? form.checkedRules.filter(x => x !== r) : [...form.checkedRules, r];
-                                          setForm({...form, checkedRules: next, isAligned: next.length === (config.rules?.length || 0)});
-                                      }} /> {r}
-                                  </label>
-                              ))}
-                          </div>
-                      )}
-                      <button type="submit" className="btn-primary" style={{ width:'100%', height: 44, marginTop: 10 }}>OPEN POSITION</button>
-                  </div>
+                        </div>
+                        {showRules && (
+                            <div style={{ display:'grid', gap:8, marginBottom: 15, background: 'white', padding: 10, borderRadius: 10 }}>
+                                {(config.rules || []).map(r => (
+                                    <label key={r} style={{ fontSize:11, display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
+                                        <input type="checkbox" checked={form.checkedRules.includes(r)} onChange={() => {
+                                            const next = form.checkedRules.includes(r) ? form.checkedRules.filter(x => x !== r) : [...form.checkedRules, r];
+                                            setForm({...form, checkedRules: next, isAligned: next.length === (config.rules?.length || 0)});
+                                        }} /> {r}
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                  )}
               </div>
           </form>
         </div>
@@ -257,67 +266,73 @@ export default function TradeLab() {
 
       {isProMode && <AdvancedJournalForm onSubmit={(data) => { addDoc(collection(db, "users", auth.currentUser.uid, "trades"), data); setIsProMode(false); }} onCancel={() => setIsProMode(false)} />}
 
-      {/* TABLE */}
-      <div className="bento-card" style={{ padding: 0, overflow: 'hidden', marginTop: 30 }}>
-            <table className="apple-table">
-                <thead><tr><th>Ticker</th><th>Account</th><th>Status</th><th>Result</th><th></th></tr></thead>
-                <tbody>
-                    {trades.map(trade => (
-                        <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
-                            <td style={{ fontWeight:700 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
-                                {trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span>
-                              </div>
-                            </td>
-                            <td>
-                                <div style={{ fontWeight: 700 }}>{trade.accountName}</div>
-                                <div style={{ fontSize: 10, color: '#86868B' }}>ID: {accounts.find(a => a.id === trade.accountId)?.accountNumber || '---'}</div>
-                            </td>
-                            <td>{trade.status === 'OPEN' ? <span className="badge-blue" style={{ background:'#E5F1FF', color:'#007AFF', padding:'3px 8px', borderRadius:6, fontSize:10, fontWeight:800 }}>OPEN</span> : <span style={{color:'#86868B', fontSize:11}}>CLOSED</span>}</td>
-                            <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF3B30' }}>
-                                {trade.status === 'OPEN' ? (
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }}
-                                      style={{ background:'#007AFF', color:'white', border:'none', borderRadius:6, padding:'4px 12px', fontSize:10, fontWeight:800, cursor:'pointer' }}
-                                    >CLOSE</button>
-                                ) : (
-                                    `${trade.accountCurrency === 'EUR' ? '€' : '$'}${trade.pnl || 0}`
-                                )}
-                            </td>
-                            <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete trade?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc'}}><Trash size={16}/></button></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+      {/* TRADE LIST - Responsive Switch */}
+      <div style={{ marginTop: 30 }}>
+        {isMobile ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+                {trades.slice(0, 10).map(trade => (
+                    <div key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="bento-card" style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ background: trade.direction === 'LONG' ? 'rgba(48, 209, 88, 0.1)' : 'rgba(255, 69, 58, 0.1)', padding: 10, borderRadius: 12 }}>
+                                {trade.direction === 'LONG' ? <ArrowSquareOut size={20} color="#30D158" weight="bold" /> : <ArrowSquareOut size={20} color="#FF453A" weight="bold" style={{transform: 'rotate(90deg)'}} />}
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 800, fontSize: 15 }}>{trade.pair}</div>
+                                <div style={{ fontSize: 10, color: '#86868B', fontWeight: 600 }}>{trade.accountName}</div>
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            {trade.status === 'OPEN' ? (
+                                <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background:'#007AFF', color:'white', border:'none', borderRadius:10, padding:'10px 18px', fontSize:11, fontWeight:800 }}>CLOSE</button>
+                            ) : (
+                                <div style={{ fontWeight: 900, color: trade.pnl >= 0 ? '#30D158' : '#FF453A', fontSize: 16 }}>{trade.pnl >= 0 ? '+' : ''}{trade.pnl}</div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        ) : (
+            <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <table className="apple-table">
+                    <thead><tr><th>Ticker</th><th>Account</th><th>Status</th><th>Result</th><th></th></tr></thead>
+                    <tbody>
+                        {trades.map(trade => (
+                            <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
+                                <td style={{ fontWeight:700 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
+                                        {trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span>
+                                    </div>
+                                </td>
+                                <td>{trade.accountName}</td>
+                                <td>{trade.status === 'OPEN' ? <span className="badge-blue">OPEN</span> : <span style={{color:'#86868B'}}>CLOSED</span>}</td>
+                                <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF3B30' }}>
+                                    {trade.status === 'OPEN' ? <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} className="btn-small">CLOSE</button> : `$${trade.pnl || 0}`}
+                                </td>
+                                <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc'}}><Trash size={16}/></button></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
       </div>
 
-      {/* CLOSE POSITION MODAL */}
+      {/* MODALS */}
       {closingTrade && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1200 }}>
-            <div className="bento-card" style={{ width: 340, padding: 30 }}>
-                <div style={{ textAlign:'center', marginBottom:20 }}>
-                    <div style={{ fontSize:32, marginBottom:10 }}>🎯</div>
-                    <h3 style={{ margin:0, fontWeight:900 }}>Close Position</h3>
-                    <p style={{ color:'#86868B', fontSize:13 }}>Result for {closingTrade.pair}</p>
-                </div>
-                <form onSubmit={executeCloseTrade}>
-                    <div className="input-group">
-                        <label className="input-label">Net P&L ({closingTrade.accountCurrency === 'EUR' ? '€' : '$'})</label>
-                        <input className="apple-input" type="number" step="any" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} placeholder="0.00" required />
-                    </div>
-                    <div className="input-group" style={{marginTop:15}}>
-                        <label className="input-label">Actual Exit Price</label>
-                        <input className="apple-input" type="number" step="any" value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} placeholder="Ticker price at exit" required />
-                    </div>
-                    <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:25, height: 48 }}>Confirm Result</button>
-                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', width:'100%', marginTop:15, color:'#86868B', fontSize:12 }}>Cancel</button>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: 20 }}>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 350, padding: 30 }}>
+                <h3 style={{ margin:0, fontWeight:900, textAlign: 'center' }}>Close Position</h3>
+                <form onSubmit={executeCloseTrade} style={{ display: 'grid', gap: 15, marginTop: 20 }}>
+                    <input style={{fontSize:16, height:50}} className="apple-input" type="number" inputMode="decimal" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} placeholder="Net P&L ($)" required />
+                    <input style={{fontSize:16, height:50}} className="apple-input" type="number" inputMode="decimal" value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} placeholder="Exit Price" required />
+                    <button type="submit" className="btn-primary" style={{ height: 50, borderRadius: 14 }}>CONFIRM</button>
+                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', color:'#86868B', fontSize: 12 }}>Cancel</button>
                 </form>
             </div>
         </div>
       )}
 
-      {/* REVIEW MODAL */}
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100, padding: 20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
@@ -327,29 +342,29 @@ export default function TradeLab() {
                 </div>
                 
                 <form onSubmit={handleUpdateTrade}>
-                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 40 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: isMobile ? 20 : 40 }}>
                         <div>
                             <div className="label-xs" style={{color:'#007AFF', marginBottom: 15 }}>PRECISION & EXECUTION</div>
                             <div className="input-group" style={{ marginBottom: 15 }}>
                                 <label className="input-label">Trade Date</label>
-                                <input type="date" className="apple-input" value={editingTrade.date} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} />
+                                <input style={isMobile ? {fontSize:16} : {}} type="date" className="apple-input" value={editingTrade.date} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} />
                             </div>
 
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group"><label className="input-label">Entry Price</label><input className="apple-input" type="number" step="any" value={editingTrade.entryPrice || editingTrade.price || ''} onChange={e => setEditingTrade({...editingTrade, entryPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">Stoploss</label><input className="apple-input" type="number" step="any" value={editingTrade.slPrice || editingTrade.sl || ''} onChange={e => setEditingTrade({...editingTrade, slPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">Take Profit</label><input className="apple-input" type="number" step="any" value={editingTrade.tpPrice || ''} onChange={e => setEditingTrade({...editingTrade, tpPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">Entry</label><input style={isMobile ? {fontSize:16} : {}} className="apple-input" type="number" step="any" value={editingTrade.entryPrice || editingTrade.price || ''} onChange={e => setEditingTrade({...editingTrade, entryPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">SL</label><input style={isMobile ? {fontSize:16} : {}} className="apple-input" type="number" step="any" value={editingTrade.slPrice || editingTrade.sl || ''} onChange={e => setEditingTrade({...editingTrade, slPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">TP</label><input style={isMobile ? {fontSize:16} : {}} className="apple-input" type="number" step="any" value={editingTrade.tpPrice || ''} onChange={e => setEditingTrade({...editingTrade, tpPrice: e.target.value})} /></div>
                             </div>
 
                             <div className="input-group" style={{ marginBottom: 15 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <label className="input-label" style={{ margin:0 }}>Exit Prices (Partials)</label>
+                                    <label className="input-label" style={{ margin:0 }}>Exit Prices</label>
                                     <PlusCircle size={18} color="#007AFF" weight="fill" style={{ cursor: 'pointer' }} onClick={() => setEditingTrade({...editingTrade, actualExits: [...editingTrade.actualExits, { price: '' }]})} />
                                 </div>
                                 <div style={{ display: 'grid', gap: 8 }}>
                                     {(editingTrade.actualExits || []).map((ex, idx) => (
                                         <div key={idx} style={{ display: 'flex', gap: 8 }}>
-                                            <input className="apple-input" placeholder={`Exit ${idx + 1}`} type="number" step="any" value={ex.price} onChange={(e) => {
+                                            <input style={isMobile ? {fontSize:16} : {}} className="apple-input" placeholder={`Exit ${idx + 1}`} type="number" step="any" value={ex.price} onChange={(e) => {
                                                 const exits = [...editingTrade.actualExits];
                                                 exits[idx].price = e.target.value;
                                                 setEditingTrade({...editingTrade, actualExits: exits});
@@ -361,44 +376,21 @@ export default function TradeLab() {
                             </div>
 
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group">
-                                    <label className="input-label">
-                                        MAE Price (Heat)
-                                        <FieldInfo title="MAE (Close to SL)" text="The absolute lowest (worst) price reached while in the trade. Measures how close you came to your Stop Loss." />
-                                    </label>
-                                    <input className="apple-input" type="number" step="any" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} />
-                                </div>
-                                <div className="input-group">
-                                    <label className="input-label">
-                                        MFE Price (Run)
-                                        <FieldInfo title="MFE (Close to TP)" text="The absolute best price reached during or shortly after the trade. Measures the total move opportunity." />
-                                    </label>
-                                    <input className="apple-input" type="number" step="any" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} />
-                                </div>
+                                <div className="input-group"><label className="input-label">MAE {!isMobile && <FieldInfo title="MAE" text="Lowest price." />}</label><input style={isMobile ? {fontSize:16} : {}} className="apple-input" type="number" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">MFE {!isMobile && <FieldInfo title="MFE" text="Best price." />}</label><input style={isMobile ? {fontSize:16} : {}} className="apple-input" type="number" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} /></div>
                             </div>
 
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom: 15 }}>
-                                <div className="input-group"><label className="input-label">Risk ($)</label><input className="apple-input" type="number" value={editingTrade.risk || ''} onChange={e => setEditingTrade({...editingTrade, risk: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">Net P&L ($)</label><input className="apple-input" type="number" value={editingTrade.pnl || ''} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
-                            </div>
-                            
                             <div className="input-group">
                                 <label className="input-label">Strategy</label>
-                                <select className="apple-input" value={editingTrade.strategy} onChange={e => setEditingTrade({...editingTrade, strategy: e.target.value})}>
+                                <select style={isMobile ? {fontSize:16} : {}} className="apple-input" value={editingTrade.strategy} onChange={e => setEditingTrade({...editingTrade, strategy: e.target.value})}>
                                     <option value="">Select Strategy...</option>
                                     {config.strategies.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </div>
-                            <div className="input-group" style={{marginTop:15}}>
-                                <label className="input-label">Review Notes</label>
-                                <textarea className="apple-input" rows={3} value={editingTrade.notes || ''} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Focus on process..." />
-                            </div>
                         </div>
 
                         <div>
-                            <div className="label-xs" style={{color:'#FF9F0A', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15 }}>
-                                BEHAVIORAL REVIEW
-                            </div>
+                            <div className="label-xs" style={{color:'#FF9F0A', marginBottom: 15 }}>BEHAVIORAL REVIEW</div>
                             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:20 }}>
                                 {(config.mistakes || []).map(m => {
                                     const isSel = (editingTrade.mistake || []).includes(m);
@@ -407,19 +399,16 @@ export default function TradeLab() {
                                             const current = editingTrade.mistake || [];
                                             const next = current.includes(m) ? current.filter(x => x !== m) : [...current, m];
                                             setEditingTrade({...editingTrade, mistake: next});
-                                        }} style={{ border: isSel ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: isSel ? 'rgba(255, 59, 48, 0.1)' : 'white', padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 600, cursor:'pointer' }}>{m}</button>
+                                        }} style={{ border: isSel ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: isSel ? 'rgba(255, 59, 48, 0.1)' : 'white', padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{m}</button>
                                     );
                                 })}
                             </div>
                             <div className="input-group" style={{ marginBottom: 20 }}><label className="input-label">Emotion</label>
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>
-                                    {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, cursor:'pointer', textAlign:'center', background: editingTrade.emotion === em.label ? 'white' : 'transparent' }}>{em.icon}</div>)}
+                                    {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, textAlign:'center' }}>{em.icon}</div>)}
                                 </div>
                             </div>
-                            <div className="input-group">
-                                <label className="input-label">TradingView Link</label>
-                                <input className="apple-input" placeholder="https://..." value={editingTrade.chartUrl || ''} onChange={e => setEditingTrade({...editingTrade, chartUrl: e.target.value})} />
-                            </div>
+                            <textarea style={isMobile ? {fontSize:16} : {}} className="apple-input" rows={3} value={editingTrade.notes || ''} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Notes..." />
                         </div>
                     </div>
                     <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:30, height: 50, fontWeight: 800 }}>FINALIZE REVIEW</button>
