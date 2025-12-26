@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, doc, getDoc } from 'firebase/firestore'; 
-import { Calculator, X, Trash, PlusCircle, CheckSquare, CaretDown, Gear } from '@phosphor-icons/react';
+import { Calculator, X, Trash, PlusCircle, CheckSquare, CaretDown, Gear, Scales } from '@phosphor-icons/react';
 
 const DEFAULT_CONFIG = {
     strategies: ["Breakout", "Pullback", "Reversal"],
@@ -13,6 +13,7 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
   const [accounts, setAccounts] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [showRules, setShowRules] = useState(false);
+  const [showPriceArch, setShowPriceArch] = useState(true); // Inklapbaar zoals bij Lightning
   
   const [general, setGeneral] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -26,7 +27,7 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
   });
 
   const [entry, setEntry] = useState({ 
-    price: '', sl: '', risk: '', totalLots: '' 
+    price: '', sl: '', tp: '', risk: '', totalLots: '' // tp toegevoegd voor blueprint
   });
 
   const [exits, setExits] = useState([
@@ -49,7 +50,6 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
     return () => unsub();
   }, []);
 
-  // Sync "Aligned" met regels
   const handleAlignedToggle = (checked) => {
     setGeneral(prev => ({
         ...prev,
@@ -59,7 +59,6 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
     if (checked) setShowRules(true);
   };
 
-  // AUTO DIRECTION LOGIC
   useEffect(() => {
     if (entry.price && entry.sl) {
         const ePrice = Number(entry.price);
@@ -69,7 +68,6 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
     }
   }, [entry.price, entry.sl]);
 
-  // PLANNING CALCULATOR
   useEffect(() => {
     if (!entry.price || !entry.sl || !entry.risk) return;
     const entryPrice = Number(entry.price);
@@ -109,8 +107,12 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
       ...general,
       accountName: selectedAcc?.firm || 'Unknown',
       accountCurrency: selectedAcc?.accountCurrency || 'USD',
-      ...entry,
+      // Mapping naar uniforme blueprint velden
+      entryPrice: Number(entry.price),
+      slPrice: Number(entry.sl),
+      tpPrice: Number(entry.tp),
       risk: Number(entry.risk), 
+      totalLots: Number(entry.totalLots),
       exits, 
       disciplineScore: score,
       pnl: 0, 
@@ -121,6 +123,8 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
       mistake: [], 
       mae: 0,
       mfe: 0,
+      maePrice: Number(entry.price), // Initieel gelijk aan entry
+      mfePrice: Number(entry.price), // Initieel gelijk aan entry
       createdAt: new Date()
     });
   };
@@ -166,12 +170,28 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
             </div>
         </div>
 
-        <div className="label-xs" style={{marginBottom:10, opacity:0.6}}>EXECUTION PARAMETERS</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 15, marginBottom: 25 }}>
-            <div className="input-group"><label className="input-label">Entry Price</label><input className="apple-input" type="number" step="any" value={entry.price} onChange={e => setEntry({...entry, price: e.target.value})} required /></div>
-            <div className="input-group"><label className="input-label">Stoploss</label><input className="apple-input" type="number" step="any" value={entry.sl} onChange={e => setEntry({...entry, sl: e.target.value})} required /></div>
-            <div className="input-group"><label className="input-label">Risk ({getCurrencySymbol()})</label><input className="apple-input" type="number" value={entry.risk} onChange={e => setEntry({...entry, risk: e.target.value})} required /></div>
-            <div className="input-group"><label className="input-label">Total Lots</label><input className="apple-input" type="number" step="any" value={entry.totalLots} onChange={e => setEntry({...entry, totalLots: e.target.value})} required /></div>
+        {/* PRICE ARCHITECTURE - INKLAPBAAR */}
+        <div style={{ marginBottom: 25, background: '#FFF', padding: '15px', borderRadius: 16, border: '1px solid #E5E5EA' }}>
+            <div onClick={() => setShowPriceArch(!showPriceArch)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:800, color: '#007AFF' }}>
+                    <Scales size={18} weight="bold" /> PRICE ARCHITECTURE
+                </div>
+                <CaretDown size={16} style={{ transform: showPriceArch ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
+            </div>
+            
+            {showPriceArch && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 15, marginTop: 15 }}>
+                    <div className="input-group"><label className="input-label">Entry Price</label><input className="apple-input" type="number" step="any" value={entry.price} onChange={e => setEntry({...entry, price: e.target.value})} required /></div>
+                    <div className="input-group"><label className="input-label" style={{color:'#FF3B30'}}>Stoploss</label><input className="apple-input" type="number" step="any" value={entry.sl} onChange={e => setEntry({...entry, sl: e.target.value})} required /></div>
+                    <div className="input-group"><label className="input-label" style={{color:'#30D158'}}>Target (TP)</label><input className="apple-input" type="number" step="any" value={entry.tp} onChange={e => setEntry({...entry, tp: e.target.value})} required /></div>
+                    <div className="input-group"><label className="input-label">Risk ({getCurrencySymbol()})</label><input className="apple-input" type="number" value={entry.risk} onChange={e => setEntry({...entry, risk: e.target.value})} required /></div>
+                </div>
+            )}
+            {showPriceArch && (
+                <div style={{ marginTop: 15, maxWidth: '25%' }}>
+                    <div className="input-group"><label className="input-label">Total Lots</label><input className="apple-input" type="number" step="any" value={entry.totalLots} onChange={e => setEntry({...entry, totalLots: e.target.value})} required /></div>
+                </div>
+            )}
         </div>
 
         <div className="label-xs" style={{marginBottom:10, opacity:0.6}}>EXIT PLAN</div>
@@ -180,7 +200,7 @@ export default function AdvancedJournalForm({ onSubmit, onCancel }) {
                 <div key={exit.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr auto', gap: 10 }}>
                     <input className="apple-input" placeholder="Price" type="number" step="any" value={exit.price} onChange={(e) => { const n = [...exits]; n[index].price = e.target.value; setExits(n); }} />
                     <input className="apple-input" placeholder="Lots" type="number" step="any" value={exit.lots} onChange={(e) => { const n = [...exits]; n[index].lots = e.target.value; setExits(n); }} />
-                    <input className="apple-input" placeholder="Note (e.g. Exit 1)" value={exit.note} onChange={(e) => { const n = [...exits]; n[index].note = e.target.value; setExits(n); }} />
+                    <input className="apple-input" placeholder="Note" value={exit.note} onChange={(e) => { const n = [...exits]; n[index].note = e.target.value; setExits(n); }} />
                     <button type="button" onClick={() => setExits(exits.filter(ex => ex.id !== exit.id))} style={{ border:'none', background:'none', color:'#FF3B30' }}><Trash size={18} /></button>
                 </div>
             ))}

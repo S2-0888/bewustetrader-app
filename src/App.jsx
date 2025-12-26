@@ -4,7 +4,7 @@ import { auth, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Crown 
+  Gear, SignOut, ShieldCheck, Crown, Flask 
 } from '@phosphor-icons/react';
 
 import Dashboard from './components/Dashboard';
@@ -14,6 +14,7 @@ import Finance from './components/Finance';
 import Settings from './components/Settings';
 import Login from './components/Login';
 import Admin from './components/Admin';
+import DesignLab from './components/DesignLab'; 
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -99,6 +100,23 @@ function App() {
             <span>Finance</span>
           </button>
 
+          {/* ADMIN ONLY: DESIGN LAB ACCESS */}
+          {isAdmin && (
+            <button 
+                className={`nav-item ${view === 'design-lab' ? 'active' : ''}`} 
+                onClick={() => setView('design-lab')} 
+                style={{ 
+                    marginTop: 10, 
+                    border: '1px dashed #AF52DE', 
+                    background: view === 'design-lab' ? '#AF52DE' : 'rgba(175, 82, 222, 0.05)',
+                    color: view === 'design-lab' ? 'white' : '#AF52DE'
+                }}
+            >
+              <Flask size={20} weight={view === 'design-lab' ? "fill" : "bold"} />
+              <span>Design Lab</span>
+            </button>
+          )}
+
           {isAdmin && (
             <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF', border: view === 'admin' ? 'none' : '1px solid rgba(0,122,255,0.1)' }}>
               <ShieldCheck size={20} weight={view === 'admin' ? "fill" : "bold"} />
@@ -107,7 +125,6 @@ function App() {
           )}
         </nav>
 
-        {/* COMPACT FOOTER WITH SETTINGS & SIGN OUT NEXT TO EACH OTHER */}
         <div className="sidebar-footer" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button 
             className={`nav-item ${view === 'settings' ? 'active' : ''}`} 
@@ -141,20 +158,10 @@ function App() {
           <Notebook size={24} weight={view === 'tradelab' ? "fill" : "regular"} />
           <span>Lab</span>
         </button>
-        <button className={`tab-item ${view === 'portfolio' ? 'active' : ''}`} onClick={() => setView('portfolio')}>
-          <Briefcase size={24} weight={view === 'portfolio' ? "fill" : "regular"} />
-          <span>Inventory</span>
-        </button>
         <button className={`tab-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
           <Gear size={24} weight={view === 'settings' ? "fill" : "regular"} />
           <span>Settings</span>
         </button>
-        {isAdmin && (
-          <button className={`tab-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')}>
-            <ShieldCheck size={24} weight={view === 'admin' ? "fill" : "regular"} color="#007AFF" />
-            <span>Admin</span>
-          </button>
-        )}
       </nav>
 
       <main className="main">
@@ -163,7 +170,9 @@ function App() {
         {view === 'portfolio' && <Portfolio />}
         {view === 'finance' && <Finance />}
         {view === 'settings' && <Settings />}
-        {view === 'admin' && <Admin />}
+        {view === 'admin' && isAdmin && <Admin />}
+        {/* Render Design Lab only for Admin */}
+        {view === 'design-lab' && isAdmin && <DesignLab />}
       </main>
     </div>
   );

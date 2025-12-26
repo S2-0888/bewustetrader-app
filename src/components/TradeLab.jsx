@@ -2,11 +2,38 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { 
-  Trash, X, Wallet, ToggleLeft, ToggleRight, Gear,
-  CheckSquare, Smiley, SmileySad, SmileyMeh, 
-  SmileyNervous, Plus, Target, PlusCircle, Lightning, Blueprint, ArrowSquareOut, CaretDown
+  Trash, X, Wallet, Gear,
+  Smiley, SmileySad, SmileyMeh, 
+  SmileyNervous, Plus, PlusCircle, Blueprint, ArrowSquareOut, CaretDown, Lightning, Scales, Info
 } from '@phosphor-icons/react';
 import AdvancedJournalForm from './AdvancedJournalForm';
+
+// --- SUB-COMPONENT FOR TOOLTIPS ---
+const FieldInfo = ({ title, text }) => {
+    const [visible, setVisible] = useState(false);
+    return (
+        <div style={{ position: 'relative', display: 'inline-block', marginLeft: '6px' }}>
+            <Info 
+                size={14} 
+                weight="bold" 
+                style={{ cursor: 'help', color: '#007AFF', opacity: 0.8 }} 
+                onMouseEnter={() => setVisible(true)}
+                onMouseLeave={() => setVisible(false)}
+            />
+            {visible && (
+                <div style={{
+                    position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+                    width: '240px', background: '#1C1C1E', color: 'white', padding: '12px',
+                    borderRadius: '12px', fontSize: '11px', zIndex: 100, marginBottom: '8px',
+                    boxShadow: '0 15px 35px rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                    <p style={{ margin: 0, fontWeight: 900, color: '#0A84FF', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</p>
+                    <p style={{ margin: 0, lineHeight: '1.5', color: '#E5E5EA' }}>{text}</p>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const DEFAULT_CONFIG = {
     strategies: ["Breakout", "Pullback", "Reversal"],
@@ -27,15 +54,18 @@ export default function TradeLab() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [isProMode, setIsProMode] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showPriceFields, setShowPriceFields] = useState(false); 
   const [editingTrade, setEditingTrade] = useState(null);
-  const [closingTrade, setClosingTrade] = useState(null); // Voor de Close popup
+  const [closingTrade, setClosingTrade] = useState(null); 
   const [closePnl, setClosePnl] = useState('');
+  const [closeExitPrice, setCloseExitPrice] = useState(''); 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     accountId: '', pair: '', direction: 'LONG', 
-    strategy: '', risk: '', isAligned: false, checkedRules: [], chartUrl: ''
+    strategy: '', risk: '', isAligned: false, checkedRules: [], chartUrl: '',
+    entryPrice: '', slPrice: '', tpPrice: '', maePrice: '', mfePrice: ''
   });
 
   useEffect(() => {
@@ -70,11 +100,6 @@ export default function TradeLab() {
     if (checked) setShowRules(true);
   };
 
-  const goToSettings = (e) => {
-    if (e) e.stopPropagation();
-    window.location.pathname = '/settings';
-  };
-
   const handleSimpleOpen = async (e) => {
     e.preventDefault();
     if (!selectedFormAccount) return;
@@ -84,13 +109,17 @@ export default function TradeLab() {
 
     await addDoc(collection(db, "users", auth.currentUser.uid, "trades"), {
       ...form, 
+      entryPrice: Number(form.entryPrice),
+      slPrice: Number(form.slPrice),
+      tpPrice: Number(form.tpPrice),
+      risk: Number(form.risk),
       mistake: [], status: 'OPEN', pnl: 0, 
       isAdvanced: false, createdAt: new Date(),
       accountName: selectedFormAccount.firm,
       accountCurrency: selectedFormAccount.accountCurrency || 'USD',
       disciplineScore: score
     });
-    setForm(prev => ({ ...prev, pair: '', risk: '', isAligned: false, checkedRules: [] }));
+    setForm(prev => ({ ...prev, pair: '', risk: '', isAligned: false, checkedRules: [], entryPrice: '', slPrice: '', tpPrice: '' }));
   };
 
   const executeCloseTrade = async (e) => {
@@ -100,21 +129,29 @@ export default function TradeLab() {
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
         status: 'CLOSED',
         pnl: Number(closePnl),
+        exitPrice: Number(closeExitPrice),
+        actualExits: [{ price: Number(closeExitPrice) }],
         closedAt: new Date()
     });
     setClosingTrade(null);
     setClosePnl('');
+    setCloseExitPrice('');
   };
 
   const handleUpdateTrade = async (e) => {
     e.preventDefault();
     if (!editingTrade) return;
 
-    const entry = Number(editingTrade.price);
-    const sl = Number(editingTrade.sl);
+    const entry = Number(editingTrade.entryPrice || editingTrade.price);
+    const sl = Number(editingTrade.slPrice || editingTrade.sl);
     const risk = Number(editingTrade.risk);
     const maeP = Number(editingTrade.maePrice);
     const mfeP = Number(editingTrade.mfePrice);
+
+    const validExits = (editingTrade.actualExits || []).filter(ex => ex.price !== '');
+    const avgExitPrice = validExits.length > 0 
+        ? validExits.reduce((sum, ex) => sum + Number(ex.price), 0) / validExits.length 
+        : Number(editingTrade.exitPrice || entry);
 
     let maeVal = 0, mfeVal = 0;
     if (entry && sl && risk && maeP && mfeP) {
@@ -127,7 +164,12 @@ export default function TradeLab() {
     }
 
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
-        ...editingTrade, mae: maeVal, mfe: mfeVal
+        ...editingTrade, 
+        entryPrice: entry,
+        slPrice: sl,
+        exitPrice: avgExitPrice,
+        mae: maeVal, 
+        mfe: mfeVal
     });
     setEditingTrade(null);
   };
@@ -158,8 +200,26 @@ export default function TradeLab() {
                               {accounts.filter(a => a.status === 'Active').map(acc => (<option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber}</option>))}
                           </select>
                       </div>
+                      
+                      <div style={{ marginBottom: 15, background: '#F5F5F7', padding: '12px', borderRadius: 12 }}>
+                        <div onClick={() => setShowPriceFields(!showPriceFields)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700 }}>
+                                <Scales size={18} color="#007AFF" /> PRICE ARCHITECTURE
+                            </div>
+                            <CaretDown size={16} style={{ transform: showPriceFields ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
+                        </div>
+                        
+                        {showPriceFields && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 15 }}>
+                                <div className="input-group"><label className="input-label" style={{fontSize:9}}>ENTRY</label><input type="number" step="any" className="apple-input" value={form.entryPrice} onChange={e => setForm({...form, entryPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label" style={{fontSize:9, color:'#FF3B30'}}>STOP LOSS</label><input type="number" step="any" className="apple-input" value={form.slPrice} onChange={e => setForm({...form, slPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label" style={{fontSize:9, color:'#30D158'}}>TARGET (TP)</label><input type="number" step="any" className="apple-input" value={form.tpPrice} onChange={e => setForm({...form, tpPrice: e.target.value})} /></div>
+                            </div>
+                        )}
+                      </div>
+
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15 }}>
-                          <input type="number" step="any" placeholder="Risk Amount" className="apple-input" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required />
+                          <input type="number" step="any" placeholder="Risk Amount ($)" className="apple-input" value={form.risk} onChange={e => setForm({...form, risk: e.target.value})} required />
                           <div style={{ display:'flex', height: 42, background:'#E5E5EA', borderRadius:8, padding: 2 }}>
                                 <button type="button" onClick={() => setForm({...form, direction: 'LONG'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'LONG' ? 'white' : 'transparent', color: form.direction === 'LONG' ? '#30D158' : '#86868B' }}>LONG</button>
                                 <button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button>
@@ -174,7 +234,6 @@ export default function TradeLab() {
                           </label>
                           <div style={{ display: 'flex', gap: 10, alignItems:'center' }}>
                             <CaretDown size={18} style={{ cursor:'pointer', transform: showRules ? 'rotate(180deg)' : 'none', transition: '0.2s' }} onClick={() => setShowRules(!showRules)} />
-                            <Gear size={18} color="#86868B" style={{ cursor:'pointer' }} onClick={goToSettings} />
                           </div>
                       </div>
                       {showRules && (
@@ -196,7 +255,6 @@ export default function TradeLab() {
         </div>
       )}
 
-      {/* ADVANCED PLANNER */}
       {isProMode && <AdvancedJournalForm onSubmit={(data) => { addDoc(collection(db, "users", auth.currentUser.uid, "trades"), data); setIsProMode(false); }} onCancel={() => setIsProMode(false)} />}
 
       {/* TABLE */}
@@ -205,7 +263,7 @@ export default function TradeLab() {
                 <thead><tr><th>Ticker</th><th>Account</th><th>Status</th><th>Result</th><th></th></tr></thead>
                 <tbody>
                     {trades.map(trade => (
-                        <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || [{ price: '' }] })} className="hover-row" style={{ cursor:'pointer' }}>
+                        <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
                             <td style={{ fontWeight:700 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
@@ -248,6 +306,10 @@ export default function TradeLab() {
                         <label className="input-label">Net P&L ({closingTrade.accountCurrency === 'EUR' ? '€' : '$'})</label>
                         <input className="apple-input" type="number" step="any" autoFocus value={closePnl} onChange={e => setClosePnl(e.target.value)} placeholder="0.00" required />
                     </div>
+                    <div className="input-group" style={{marginTop:15}}>
+                        <label className="input-label">Actual Exit Price</label>
+                        <input className="apple-input" type="number" step="any" value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} placeholder="Ticker price at exit" required />
+                    </div>
                     <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:25, height: 48 }}>Confirm Result</button>
                     <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', width:'100%', marginTop:15, color:'#86868B', fontSize:12 }}>Cancel</button>
                 </form>
@@ -273,14 +335,15 @@ export default function TradeLab() {
                                 <input type="date" className="apple-input" value={editingTrade.date} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} />
                             </div>
 
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group"><label className="input-label">Entry Price</label><input className="apple-input" type="number" step="any" value={editingTrade.price || ''} onChange={e => setEditingTrade({...editingTrade, price: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">Stoploss</label><input className="apple-input" type="number" step="any" value={editingTrade.sl || ''} onChange={e => setEditingTrade({...editingTrade, sl: e.target.value})} /></div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:15 }}>
+                                <div className="input-group"><label className="input-label">Entry Price</label><input className="apple-input" type="number" step="any" value={editingTrade.entryPrice || editingTrade.price || ''} onChange={e => setEditingTrade({...editingTrade, entryPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">Stoploss</label><input className="apple-input" type="number" step="any" value={editingTrade.slPrice || editingTrade.sl || ''} onChange={e => setEditingTrade({...editingTrade, slPrice: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">Take Profit</label><input className="apple-input" type="number" step="any" value={editingTrade.tpPrice || ''} onChange={e => setEditingTrade({...editingTrade, tpPrice: e.target.value})} /></div>
                             </div>
 
                             <div className="input-group" style={{ marginBottom: 15 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <label className="input-label" style={{ margin:0 }}>Exit Prices</label>
+                                    <label className="input-label" style={{ margin:0 }}>Exit Prices (Partials)</label>
                                     <PlusCircle size={18} color="#007AFF" weight="fill" style={{ cursor: 'pointer' }} onClick={() => setEditingTrade({...editingTrade, actualExits: [...editingTrade.actualExits, { price: '' }]})} />
                                 </div>
                                 <div style={{ display: 'grid', gap: 8 }}>
@@ -291,21 +354,34 @@ export default function TradeLab() {
                                                 exits[idx].price = e.target.value;
                                                 setEditingTrade({...editingTrade, actualExits: exits});
                                             }} />
+                                            {idx > 0 && <button type="button" onClick={() => setEditingTrade({...editingTrade, actualExits: editingTrade.actualExits.filter((_, i) => i !== idx)})} style={{border:'none', background:'none', color:'#FF3B30'}}><Trash size={16}/></button>}
                                         </div>
                                     ))}
                                 </div>
                             </div>
 
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group"><label className="input-label">MAE Price (Heat)</label><input className="apple-input" type="number" step="any" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">MFE Price (Run)</label><input className="apple-input" type="number" step="any" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} /></div>
+                                <div className="input-group">
+                                    <label className="input-label">
+                                        MAE Price (Heat)
+                                        <FieldInfo title="MAE (Close to SL)" text="The absolute lowest (worst) price reached while in the trade. Measures how close you came to your Stop Loss." />
+                                    </label>
+                                    <input className="apple-input" type="number" step="any" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} />
+                                </div>
+                                <div className="input-group">
+                                    <label className="input-label">
+                                        MFE Price (Run)
+                                        <FieldInfo title="MFE (Close to TP)" text="The absolute best price reached during or shortly after the trade. Measures the total move opportunity." />
+                                    </label>
+                                    <input className="apple-input" type="number" step="any" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} />
+                                </div>
                             </div>
 
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom: 15 }}>
                                 <div className="input-group"><label className="input-label">Risk ($)</label><input className="apple-input" type="number" value={editingTrade.risk || ''} onChange={e => setEditingTrade({...editingTrade, risk: e.target.value})} /></div>
                                 <div className="input-group"><label className="input-label">Net P&L ($)</label><input className="apple-input" type="number" value={editingTrade.pnl || ''} onChange={e => setEditingTrade({...editingTrade, pnl: e.target.value})} /></div>
                             </div>
-
+                            
                             <div className="input-group">
                                 <label className="input-label">Strategy</label>
                                 <select className="apple-input" value={editingTrade.strategy} onChange={e => setEditingTrade({...editingTrade, strategy: e.target.value})}>
@@ -313,7 +389,6 @@ export default function TradeLab() {
                                     {config.strategies.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </div>
-                            
                             <div className="input-group" style={{marginTop:15}}>
                                 <label className="input-label">Review Notes</label>
                                 <textarea className="apple-input" rows={3} value={editingTrade.notes || ''} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Focus on process..." />
@@ -323,7 +398,6 @@ export default function TradeLab() {
                         <div>
                             <div className="label-xs" style={{color:'#FF9F0A', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15 }}>
                                 BEHAVIORAL REVIEW
-                                <Gear size={18} color="#86868B" style={{ cursor:'pointer' }} onClick={goToSettings} />
                             </div>
                             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:20 }}>
                                 {(config.mistakes || []).map(m => {
@@ -337,22 +411,13 @@ export default function TradeLab() {
                                     );
                                 })}
                             </div>
-
                             <div className="input-group" style={{ marginBottom: 20 }}><label className="input-label">Emotion</label>
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>
                                     {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, cursor:'pointer', textAlign:'center', background: editingTrade.emotion === em.label ? 'white' : 'transparent' }}>{em.icon}</div>)}
                                 </div>
                             </div>
-
                             <div className="input-group">
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                                    <label className="input-label" style={{ margin: 0 }}>TradingView Link</label>
-                                    <div style={{ display:'flex', gap: 10 }}>
-                                      {editingTrade.chartUrl && (
-                                          <a href={editingTrade.chartUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#007AFF' }}><ArrowSquareOut size={18} /></a>
-                                      )}
-                                    </div>
-                                </div>
+                                <label className="input-label">TradingView Link</label>
                                 <input className="apple-input" placeholder="https://..." value={editingTrade.chartUrl || ''} onChange={e => setEditingTrade({...editingTrade, chartUrl: e.target.value})} />
                             </div>
                         </div>
