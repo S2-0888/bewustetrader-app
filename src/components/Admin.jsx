@@ -172,7 +172,7 @@ export default function Admin() {
             <tr>
               <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>TRADER</th>
               <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>ADHERENCE</th>
-              <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>FOUNDER</th>
+              <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>ACCESS & STATUS</th>
               <th style={{ textAlign: 'right', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>MANAGE</th>
             </tr>
           </thead>
@@ -182,6 +182,12 @@ export default function Admin() {
                 <td style={{ padding: '15px 20px' }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{u.displayName || u.email?.split('@')[0]}</div>
                   <div style={{ fontSize: 11, color: '#86868B' }}>{u.email}</div>
+                  {/* NIEUW: Stripe Status Badge */}
+                  {u.status === 'paid' && (
+                    <span style={{ fontSize: '9px', background: '#E1F5FE', color: '#01579B', padding: '2px 6px', borderRadius: 4, fontWeight: 800, marginTop: 4, display: 'inline-block' }}>
+                      STRIPE PAID
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '15px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -192,12 +198,21 @@ export default function Admin() {
                     </div>
                 </td>
                 <td style={{ padding: '15px 20px' }}>
-                    <button 
-                        onClick={() => toggleFounder(u)}
-                        style={{ border: 'none', background: u.isFounder ? '#AF52DE' : '#F2F2F7', color: u.isFounder ? 'white' : '#86868B', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
-                    >
-                        {u.isFounder ? 'FOUNDER' : 'ASSIGN'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        {/* NIEUW: Approve Knop */}
+                        <button 
+                            onClick={() => toggleApproval(u)}
+                            style={{ border: 'none', background: u.isApproved ? '#30D158' : '#F2F2F7', color: u.isApproved ? 'white' : '#86868B', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                        >
+                            {u.isApproved ? 'APPROVED' : 'APPROVE'}
+                        </button>
+                        <button 
+                            onClick={() => toggleFounder(u)}
+                            style={{ border: 'none', background: u.isFounder ? '#AF52DE' : '#F2F2F7', color: u.isFounder ? 'white' : '#86868B', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                        >
+                            {u.isFounder ? 'FOUNDER' : 'ASSIGN'}
+                        </button>
+                    </div>
                 </td>
                 <td style={{ padding: '15px 20px', textAlign: 'right' }}>
                   <button onClick={() => deleteUser(u)} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', opacity: 0.5 }}>

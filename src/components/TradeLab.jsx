@@ -42,7 +42,7 @@ export default function TradeLab() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [isProMode, setIsProMode] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [showPriceFields, setShowPriceFields] = useState(window.innerWidth < 768); 
+  const [showPriceFields, setShowPriceFields] = useState(true); 
   const [editingTrade, setEditingTrade] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -59,7 +59,6 @@ export default function TradeLab() {
     entryPrice: '', slPrice: '', tpPrice: ''
   });
 
-  // --- AUTO DIRECTION LOGIC ---
   useEffect(() => {
     const entry = parseFloat(form.entryPrice);
     const sl = parseFloat(form.slPrice);
@@ -77,13 +76,25 @@ export default function TradeLab() {
   };
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+        const mobile = window.innerWidth < 768;
+        setIsMobile(mobile);
+        if (mobile) setIsProMode(false);
+    };
     window.addEventListener('resize', handleResize);
     const user = auth.currentUser;
     if (!user) return;
     onSnapshot(query(collection(db, "users", user.uid, "trades")), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setTrades(list.sort((a, b) => (a.status === 'OPEN' ? -1 : 1) || new Date(b.date) - new Date(a.date)));
+      
+      // FIXED SORTING: Open trades first, then Newest Date on top
+      const sortedList = list.sort((a, b) => {
+        if (a.status === 'OPEN' && b.status !== 'OPEN') return -1;
+        if (a.status !== 'OPEN' && b.status === 'OPEN') return 1;
+        return new Date(b.date) - new Date(a.date);
+      });
+      
+      setTrades(sortedList);
     });
     onSnapshot(query(collection(db, "users", user.uid, "accounts")), (snap) => {
       setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); 
@@ -100,12 +111,16 @@ export default function TradeLab() {
     if (!selectedFormAccount) return;
     const riskAmount = Math.abs(Number(form.risk));
     const score = Math.round(((form.checkedRules?.length || 0) / (config.rules?.length || 1)) * 100);
+    
     await addDoc(collection(db, "users", auth.currentUser.uid, "trades"), {
       ...form, 
       entryPrice: form.entryPrice ? Number(form.entryPrice) : null,
       slPrice: form.slPrice ? Number(form.slPrice) : null,
       risk: riskAmount, status: 'OPEN', pnl: 0, commission: 0,
-      isAdvanced: false, createdAt: new Date(), accountName: selectedFormAccount.firm, disciplineScore: score
+      isAdvanced: false, createdAt: new Date(), 
+      accountName: selectedFormAccount.firm, 
+      accountNumber: selectedFormAccount.accountNumber, 
+      disciplineScore: score
     });
     setForm(prev => ({ ...prev, pair: '', risk: '', entryPrice: '', slPrice: '', tpPrice: '', isAligned: false, checkedRules: [] }));
   };
@@ -131,8 +146,6 @@ export default function TradeLab() {
     setEditingTrade(null);
   };
 
-  const currentCloseAccount = accounts.find(a => a.id === closingTrade?.accountId);
-
   return (
     <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
@@ -142,10 +155,12 @@ export default function TradeLab() {
             <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1>
             {!isMobile && <p style={{ color: '#86868B', fontSize: 14 }}>Operations & Review</p>}
         </div>
-        <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : '#F2F2F7', padding:'8px 12px', borderRadius:14 }}>
-            {isProMode ? <Blueprint size={18} color="#007AFF" /> : <Lightning size={18} color="#86868B" />}
-            <span style={{ fontSize:10, fontWeight:800, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'ADVANCED' : 'LIGHTNING'}</span>
-        </div>
+        {!isMobile && (
+            <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : '#F2F2F7', padding:'8px 12px', borderRadius:14 }}>
+                {isProMode ? <Blueprint size={18} color="#007AFF" /> : <Lightning size={18} color="#86868B" />}
+                <span style={{ fontSize:10, fontWeight:800, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'ADVANCED' : 'LIGHTNING'}</span>
+            </div>
+        )}
       </div>
 
       {!isProMode && (
@@ -162,17 +177,14 @@ export default function TradeLab() {
                           </select>
                       </div>
                       <div style={{ marginBottom: 15, background: '#F5F5F7', padding: '12px', borderRadius: 12 }}>
-                        <div onClick={() => !isMobile && setShowPriceFields(!showPriceFields)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor: 'pointer' }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700 }}><Scales size={18} color="#007AFF" /> PRICE ARCHITECTURE</div>
-                            {!isMobile && <CaretDown size={16} style={{ transform: showPriceFields ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />}
+                        <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700 }}>
+                            <Scales size={18} color="#007AFF" /> PRICE ARCHITECTURE
                         </div>
-                        {showPriceFields && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 15 }}>
-                                <input type="number" step="any" className="apple-input" placeholder="Entry" onFocus={handleFocus} value={form.entryPrice} onChange={e => setForm({...form, entryPrice: e.target.value})} />
-                                <input type="number" step="any" className="apple-input" placeholder="SL" onFocus={handleFocus} value={form.slPrice} onChange={e => setForm({...form, slPrice: e.target.value})} />
-                                <input type="number" step="any" className="apple-input" placeholder="TP" onFocus={handleFocus} value={form.tpPrice} onChange={e => setForm({...form, tpPrice: e.target.value})} />
-                            </div>
-                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 15 }}>
+                            <input type="number" step="any" className="apple-input" placeholder="Entry" onFocus={handleFocus} value={form.entryPrice} onChange={e => setForm({...form, entryPrice: e.target.value})} />
+                            <input type="number" step="any" className="apple-input" placeholder="SL" onFocus={handleFocus} value={form.slPrice} onChange={e => setForm({...form, slPrice: e.target.value})} />
+                            <input type="number" step="any" className="apple-input" placeholder="TP" onFocus={handleFocus} value={form.tpPrice} onChange={e => setForm({...form, tpPrice: e.target.value})} />
+                        </div>
                       </div>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15 }}>
                           <input type="number" step="any" min="0" placeholder="Risk ($)" className="apple-input" onFocus={handleFocus} value={form.risk} onChange={e => setForm({...form, risk: e.target.value.replace('-','')})} required />
@@ -181,6 +193,23 @@ export default function TradeLab() {
                                 <button type="button" onClick={() => setForm({...form, direction: 'SHORT'})} style={{ flex:1, border:'none', borderRadius:6, fontSize:10, fontWeight:800, background: form.direction === 'SHORT' ? 'white' : 'transparent', color: form.direction === 'SHORT' ? '#FF3B30' : '#86868B' }}>SHORT</button>
                           </div>
                       </div>
+
+                      {isMobile && (
+                        <div style={{ marginTop: 15, padding: '10px 0', borderTop: '1px solid #E5E5EA' }}>
+                            <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', fontSize:12, color: '#86868B' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={form.isAligned} 
+                                onChange={e => setForm(p => ({
+                                    ...p, 
+                                    isAligned: e.target.checked, 
+                                    checkedRules: e.target.checked ? (config.rules || []) : []
+                                }))} 
+                              /> Aligned with Plan?
+                            </label>
+                        </div>
+                      )}
+
                       <button type="submit" className="btn-primary" style={{ width:'100%', height: 44, marginTop: 10, borderRadius: 14 }}>OPEN POSITION</button>
                   </div>
 
@@ -211,40 +240,94 @@ export default function TradeLab() {
         </div>
       )}
 
-      {isProMode && <AdvancedJournalForm onSubmit={(data) => { addDoc(collection(db, "users", auth.currentUser.uid, "trades"), data); setIsProMode(false); }} onCancel={() => setIsProMode(false)} />}
+      {!isMobile && isProMode && (
+        <AdvancedJournalForm 
+          onSubmit={(data) => { addDoc(collection(db, "users", auth.currentUser.uid, "trades"), data); setIsProMode(false); }} 
+          onCancel={() => setIsProMode(false)} 
+        />
+      )}
 
-      {/* TABLE SECTION (Icons hersteld) */}
+      {/* TABLE / CARDS SECTION */}
       <div style={{ marginTop: 30 }}>
-        <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table className="apple-table">
-                <thead><tr><th>Datum</th><th>Ticker</th><th>Account</th><th>Status</th><th>Resultat</th><th></th></tr></thead>
-                <tbody>
-                    {trades.map(trade => (
-                        <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
-                            <td style={{ fontSize: '11px', color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</td>
-                            <td style={{ fontWeight:700 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    {/* ICON LOGICA HERSTELD */}
-                                    {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
-                                    {trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span>
-                                </div>
-                            </td>
-                            <td>{trade.accountName}</td>
-                            <td>{trade.status === 'OPEN' ? <span className="badge-blue">OPEN</span> : <span style={{color:'#86868B'}}>CLOSED</span>}</td>
-                            <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>
-                                {trade.status === 'OPEN' ? (
-                                    <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: 'rgba(0, 122, 255, 0.08)', color: '#007AFF', border: '1px solid rgba(0, 122, 255, 0.15)', borderRadius: '8px', padding: '6px 16px', fontSize: '11px', fontWeight: 800 }}>CLOSE</button>
-                                ) : `$${trade.pnl || 0}`}
-                            </td>
-                            <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc', cursor: 'pointer', opacity: 0.6}}><Trash size={16}/></button></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        {isMobile ? (
+          <div style={{ display: 'grid', gap: '15px' }}>
+            {trades.map(trade => (
+              <div 
+                key={trade.id} 
+                className="bento-card" 
+                onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })}
+                style={{ padding: '20px', borderLeft: `4px solid ${trade.status === 'OPEN' ? '#007AFF' : '#86868B'}` }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {trade.isAdvanced ? <Blueprint size={20} color="#007AFF" weight="fill" /> : <Lightning size={20} color="#FF9F0A" weight="fill" />}
+                    <span style={{ fontWeight: 800, fontSize: 16 }}>{trade.pair}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: trade.direction === 'LONG' ? '#30D158' : '#FF3B30' }}>{trade.direction}</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</span>
+                </div>
+
+                <div style={{ fontSize: 13, color: '#1D1D1F', marginBottom: 15 }}>
+                  <span style={{ color: '#86868B' }}>Account:</span> <span style={{ fontWeight: 700 }}>{trade.accountName}</span>
+                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 4, fontWeight: 600 }}>
+                    ID: {trade.accountNumber || 'Unknown'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 900, fontSize: 18, color: trade.status === 'OPEN' ? '#007AFF' : (trade.pnl >= 0 ? '#30D158' : '#FF453A') }}>
+                    {trade.status === 'OPEN' ? 'OPEN' : `$${trade.pnl || 0}`}
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {trade.status === 'OPEN' && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} 
+                        style={{ background: '#FF3B30', color: 'white', border: 'none', borderRadius: '10px', padding: '12px 20px', fontSize: '12px', fontWeight: 800, boxShadow: '0 4px 12px rgba(255, 59, 48, 0.2)' }}
+                      >
+                        CLOSE POSITION
+                      </button>
+                    )}
+                    <button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#FF3B30', padding: 10, opacity: 0.4}}><Trash size={20}/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
+              <table className="apple-table">
+                  <thead><tr><th>Datum</th><th>Ticker</th><th>Account</th><th>Status</th><th>Resultat</th><th></th></tr></thead>
+                  <tbody>
+                      {trades.map(trade => (
+                          <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
+                              <td style={{ fontSize: '11px', color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</td>
+                              <td style={{ fontWeight:700 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
+                                      {trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span>
+                                  </div>
+                              </td>
+                              <td>
+                                <div style={{ fontWeight: 600 }}>{trade.accountName}</div>
+                                <div style={{ fontSize: 10, color: '#86868B' }}>{trade.accountNumber || 'ID N/A'}</div>
+                              </td>
+                              <td>{trade.status === 'OPEN' ? <span className="badge-blue">OPEN</span> : <span style={{color:'#86868B'}}>CLOSED</span>}</td>
+                              <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>
+                                  {trade.status === 'OPEN' ? (
+                                      <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: 'rgba(0, 122, 255, 0.08)', color: '#007AFF', border: '1px solid rgba(0, 122, 255, 0.15)', borderRadius: '8px', padding: '6px 16px', fontSize: '11px', fontWeight: 800 }}>CLOSE</button>
+                                  ) : `$${trade.pnl || 0}`}
+                              </td>
+                              <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc', cursor: 'pointer', opacity: 0.6}}><Trash size={16}/></button></td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
+        )}
       </div>
 
-      {/* MODAL: CLOSE POSITION */}
+      {/* CLOSE MODAL */}
       {closingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, padding: 20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 380, padding: 30 }}>
@@ -277,7 +360,7 @@ export default function TradeLab() {
         </div>
       )}
 
-      {/* MODAL: REVIEW (MAE & MFE HERSTELD) */}
+      {/* REVIEW MODAL */}
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: 20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
@@ -348,7 +431,6 @@ export default function TradeLab() {
                                     ))}
                                 </div>
                             </div>
-                            {/* MAE & MFE HERSTELD */}
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15 }}>
                                 <div className="input-group"><label className="input-label">MAE Price <FieldInfo title="MAE" text="Worst price reached while in trade."/></label><input onFocus={handleFocus} className="apple-input" type="number" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} /></div>
                                 <div className="input-group"><label className="input-label">MFE Price <FieldInfo title="MFE" text="Best price reached while in trade."/></label><input onFocus={handleFocus} className="apple-input" type="number" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} /></div>

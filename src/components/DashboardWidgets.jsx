@@ -117,23 +117,63 @@ export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [],
 };
 
 // --- WIDGET 2: FORM GUIDE ---
-export const FormGuideWidget = ({ lastTrades = [] }) => (
-  <div className="bento-card" style={{ padding: 20, background: '#FFFFFF', border: '1px solid #F2F2F7', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+export const FormGuideWidget = ({ lastTrades = [], isMobile }) => {
+  // We gebruiken de lijst exact zoals hij binnenkomt (gebaseerd op sluitingstijd)
+  const displayTrades = lastTrades;
+
+  return (
+    <div className="bento-card" style={{ 
+      padding: 20, 
+      background: '#FFFFFF', 
+      border: '1px solid #F2F2F7', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      justifyContent: 'center',
+      minHeight: isMobile ? '120px' : 'auto' 
+    }}>
       <div className="label-xs" style={{ marginBottom: 15, color: '#000', fontWeight: 900, display:'flex', alignItems:'center' }}>
-        RECENT FORM <CoachingInfo title="MOMENTUM" text="Visualizing your current streak." />
+        RECENT FORM <CoachingInfo title="MOMENTUM" text="Your last closed trades in order of completion." />
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {lastTrades.map((t, idx) => {
+      <div style={{ 
+        display: 'flex', 
+        gap: isMobile ? 10 : 8, 
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start' 
+      }}>
+          {displayTrades.map((t, idx) => {
               const pnl = Number(t.pnl) || 0;
               const label = pnl > 0 ? 'W' : (pnl < 0 ? 'L' : 'D');
-              const color = pnl > 0 ? '#30D158' : (pnl < 0 ? '#FF453A' : '#8E8E93');
+              const color = pnl > 0 ? '#30D158' : (pnl < 0 ? '#FF3B30' : '#8E8E93');
+              
+              const size = isMobile ? 36 : 32;
+
               return (
-                <div key={idx} style={{ width: 32, height: 32, borderRadius: '8px', background: color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{label}</div>
+                <div 
+                  key={idx} 
+                  style={{ 
+                    width: size, 
+                    height: size, 
+                    borderRadius: '10px', 
+                    background: color, 
+                    color: 'white', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    fontSize: isMobile ? '14px' : '12px', 
+                    fontWeight: 900,
+                    // Subtiele indicator voor de allerlaatste trade (meestal de eerste in de lijst)
+                    border: idx === 0 ? '2px solid rgba(0,0,0,0.1)' : 'none',
+                    boxShadow: idx === 0 ? '0 2px 8px rgba(0,0,0,0.05)' : 'none'
+                  }}
+                >
+                  {label}
+                </div>
               );
           })}
       </div>
-  </div>
-);
+    </div>
+  );
+};
 
 // --- WIDGET 4: EXPECTANCY ---
 export const ExpectancyWidget = ({ data = [], money }) => {
