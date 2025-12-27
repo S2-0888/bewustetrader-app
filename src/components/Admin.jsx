@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, setDoc, orderBy, limit } from 'firebase/firestore';
 import { 
   ShieldCheck, Crown, Trash, Check, LinkSimple, 
-  Megaphone, Clock, MagnifyingGlass, ArrowsClockwise 
+  Megaphone, Clock, MagnifyingGlass, ArrowsClockwise,
+  ChartBar, Sparkle, TrendUp, UsersThree 
 } from '@phosphor-icons/react';
 
 export default function Admin() {
   const [users, setUsers] = useState([]);
+  const [tctLogs, setTctLogs] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [broadcast, setBroadcast] = useState('');
   const [activeBroadcast, setActiveBroadcast] = useState('');
@@ -15,50 +17,40 @@ export default function Admin() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // Listen for users updates
+    // 1. Listen for users
     const q = query(collection(db, "users"));
     const unsub = onSnapshot(q, (snap) => {
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
-    // Listen for active system broadcast
+    // 2. Listen for active system broadcast
     const bUnsub = onSnapshot(doc(db, "system", "broadcast"), (d) => {
       if (d.exists()) setActiveBroadcast(d.data().message);
     });
 
-    return () => { unsub(); bUnsub(); };
+    // 3. Listen voor TCT Insights logs
+    const lQuery = query(collection(db, "logs_tct"), orderBy("createdAt", "desc"), limit(5));
+    const lUnsub = onSnapshot(lQuery, (snap) => {
+        setTctLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsub(); bUnsub(); lUnsub(); };
   }, []);
 
+  // --- ACTIONS ---
   const updateBroadcast = async () => {
-    try {
-      await setDoc(doc(db, "system", "broadcast"), { 
-        message: broadcast, 
-        updatedAt: new Date() 
-      });
-      setBroadcast('');
-      alert("System broadcast updated successfully!");
-    } catch (error) {
-      console.error("Error updating broadcast:", error);
-    }
-  };
-
-  const toggleApproval = async (user) => {
-    await updateDoc(doc(db, "users", user.id), { isApproved: !user.isApproved });
-  };
-
-  const toggleAdmin = async (user) => {
-    await updateDoc(doc(db, "users", user.id), { role: user.role === 'admin' ? 'user' : 'admin' });
+    if(!broadcast) return;
+    await setDoc(doc(db, "system", "broadcast"), { message: broadcast, updatedAt: new Date() });
+    setBroadcast('');
   };
 
   const toggleFounder = async (user) => {
     await updateDoc(doc(db, "users", user.id), { isFounder: !user.isFounder });
   };
 
-  const deleteUser = async (user) => {
-    if (window.confirm(`Are you sure you want to delete ${user.email}?`)) {
-      await deleteDoc(doc(db, "users", user.id));
-    }
+  const toggleApproval = async (user) => {
+    await updateDoc(doc(db, "users", user.id), { isApproved: !user.isApproved });
   };
 
   const copyInviteLink = () => {
@@ -67,79 +59,99 @@ export default function Admin() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const formatLastLogin = (timestamp) => {
-    if (!timestamp) return 'Never';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const deleteUser = async (user) => {
+    if (window.confirm(`Are you sure you want to delete ${user.email}?`)) {
+      await deleteDoc(doc(db, "users", user.id));
+    }
   };
 
+  // --- ANALYTICS & SEARCH LOGICA ---
   const filteredUsers = users.filter(u => 
     u.email?.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  if (loading) return (
-    <div style={{ padding: 40, textAlign: 'center', color: '#86868B' }}>
-      <ArrowsClockwise size={32} className="spinner" />
-      <p>Initializing Command Center...</p>
-    </div>
-  );
-
   const totalFounders = users.filter(u => u.isFounder).length;
+  const avgCommunityAdherence = users.length > 0 
+    ? Math.round(users.reduce((acc, u) => acc + (u.avgAdherence || 0), 0) / users.length) 
+    : 0;
+  const estimatedRevenue = totalFounders * 99;
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center' }}><ArrowsClockwise size={32} className="spinner" /></div>;
 
   return (
-    <div style={{ padding: '40px 20px', maxWidth: 1100, margin: '0 auto', paddingBottom: 100 }}>
+    <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
       
       {/* HEADER SECTION */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 40, flexWrap: 'wrap', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40 }}>
         <div>
-          <h1 style={{ fontSize: '36px', fontWeight: 800, letterSpacing: '-1.5px', margin: 0 }}>Command Center</h1>
-          <p style={{ color: '#86868B', marginTop: 4 }}>Network administration and user verification.</p>
+          <h1 style={{ fontSize: '32px', fontWeight: 900, letterSpacing: '-1.5px', margin: 0 }}>Command Center</h1>
+          <p style={{ color: '#86868B', fontWeight: 500 }}>The Conscious Trader Platform Oversight</p>
         </div>
-        <button 
-          onClick={copyInviteLink}
-          style={{ 
-            display: 'flex', alignItems: 'center', gap: 8, padding: '12px 24px', borderRadius: 12, 
-            background: '#1D1D1F', color: 'white', border: 'none', fontWeight: 700, cursor: 'pointer'
-          }}
-        >
-          {copied ? <Check weight="bold" /> : <LinkSimple weight="bold" />}
-          {copied ? 'Copied!' : 'Copy Invite Link'}
+        <button onClick={copyInviteLink} style={{ padding: '12px 20px', borderRadius: 14, background: 'white', border: '1px solid #E5E5EA', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {copied ? <Check color="#30D158" /> : <LinkSimple />} Invite Link
         </button>
       </div>
 
-      {/* BROADCAST CARD */}
-      <div className="bento-card" style={{ marginBottom: 30, background: 'rgba(0,122,255,0.05)', border: '1px solid rgba(0,122,255,0.1)' }}>
-        <div className="label-xs" style={{ color: '#007AFF' }}><Megaphone weight="fill" /> SYSTEM BROADCAST</div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 15 }}>
-          <input 
-            value={broadcast} 
-            onChange={(e) => setBroadcast(e.target.value)}
-            placeholder={activeBroadcast || "Message for all traders..."}
-            style={{ flex: 1, padding: '12px', borderRadius: 10, border: '1px solid #E5E5EA', outline: 'none' }}
-          />
-          <button 
-            onClick={updateBroadcast} 
-            style={{ background: '#007AFF', color: 'white', border: 'none', padding: '0 25px', borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}
-          >
-            Push
-          </button>
+      {/* GOD MODE METRICS */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 30 }}>
+        <div className="bento-card" style={{ background: 'white' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span className="label-xs">FOUNDERS HARVEST</span>
+            <TrendUp size={20} color="#30D158" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, marginTop: 10 }}>€{estimatedRevenue.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>{totalFounders} of 100 slots filled</div>
+        </div>
+
+        <div className="bento-card" style={{ background: 'white' }}>
+          <span className="label-xs">COMMUNITY ADHERENCE</span>
+          <div style={{ fontSize: 28, fontWeight: 900, marginTop: 10, color: avgCommunityAdherence > 70 ? '#30D158' : '#FF9500' }}>
+            {avgCommunityAdherence}%
+          </div>
+          <div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>Avg. Discipline across platform</div>
+        </div>
+
+        <div className="bento-card" style={{ background: '#1D1D1F', color: 'white' }}>
+          <span className="label-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>ACTIVE USERS</span>
+          <div style={{ fontSize: 28, fontWeight: 900, marginTop: 10 }}>{users.length}</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 5 }}>Total registered traders</div>
         </div>
       </div>
 
-      {/* STATS & SEARCH */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginBottom: 30 }}>
-        <div className="bento-card">
-          <div className="label-xs">TOTAL TRADERS</div>
-          <div style={{ fontSize: 32, fontWeight: 800, marginTop: 10 }}>{users.length}</div>
+      {/* TCT INSIGHT MONITOR */}
+      <div className="bento-card" style={{ marginBottom: 30, border: '1px solid rgba(10, 132, 255, 0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <Sparkle size={20} weight="fill" color="#0A84FF" />
+            <span style={{ fontWeight: 800, fontSize: 13, letterSpacing: 0.5 }}>LATEST TCT INSIGHTS</span>
         </div>
-        <div className="bento-card">
-          <div className="label-xs" style={{ color: '#AF52DE' }}>FOUNDER SLOTS</div>
-          <div style={{ fontSize: 32, fontWeight: 800, marginTop: 10, color: '#AF52DE' }}>
-            {totalFounders}<span style={{ fontSize: 16, color: '#86868B', fontWeight: 400 }}> / 100</span>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+            {tctLogs.length > 0 ? tctLogs.map(log => (
+                <div key={log.id} style={{ paddingBottom: 12, borderBottom: '1px solid #F5F5F7' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#86868B', marginBottom: 4 }}>
+                        {log.userName?.toUpperCase() || 'TRADER'} • {log.createdAt ? new Date(log.createdAt.toDate()).toLocaleTimeString() : 'Just now'}
+                    </div>
+                    <div style={{ fontSize: 13, fontStyle: 'italic', color: '#1D1D1F' }}>"{log.insight}"</div>
+                </div>
+            )) : <p style={{ fontSize: 13, color: '#86868B' }}>Waiting for incoming trade logs...</p>}
         </div>
-        <div className="bento-card" style={{ display: 'flex', alignItems: 'center' }}>
+      </div>
+
+      {/* BROADCAST & SEARCH */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, marginBottom: 30 }}>
+         <div className="bento-card">
+            <div className="label-xs"><Megaphone weight="fill" /> ANNOUNCE TO COMMUNITY</div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 15 }}>
+                <input 
+                    value={broadcast} 
+                    onChange={(e) => setBroadcast(e.target.value)}
+                    placeholder={activeBroadcast || "Ex: High volatility expected today..."}
+                    style={{ flex: 1, padding: '12px', borderRadius: 12, border: '1px solid #E5E5EA', fontSize: 14 }}
+                />
+                <button onClick={updateBroadcast} style={{ background: '#007AFF', color: 'white', border: 'none', padding: '0 25px', borderRadius: 12, fontWeight: 700 }}>Push</button>
+            </div>
+         </div>
+         <div className="bento-card" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <div style={{ position: 'relative', width: '100%' }}>
                 <MagnifyingGlass size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#86868B' }} />
                 <input 
@@ -147,80 +159,48 @@ export default function Admin() {
                     placeholder="Search traders..." 
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    style={{ 
-                        width: '100%', padding: '12px 12px 12px 40px', borderRadius: 10, border: '1px solid #E5E5EA',
-                        fontSize: 14, outline: 'none', fontFamily: 'inherit'
-                    }}
+                    style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: 12, border: '1px solid #E5E5EA', fontSize: 14 }}
                 />
             </div>
-        </div>
+         </div>
       </div>
 
-      {/* USERS TABLE */}
-      <div className="bento-card" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 900 }}>
-          <thead>
-            <tr style={{ background: '#F5F5F7', borderBottom: '1px solid #E5E5EA' }}>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B' }}>TRADER</th>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B' }}>ACCESS</th>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B' }}>ROLE</th>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B' }}>FOUNDER</th>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B' }}>LAST SEEN</th>
-              <th style={{ padding: '15px 20px', fontSize: 11, fontWeight: 800, color: '#86868B', textAlign: 'right' }}>ACTIONS</th>
+      {/* USER TABLE */}
+      <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead style={{ background: '#F5F5F7' }}>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>TRADER</th>
+              <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>ADHERENCE</th>
+              <th style={{ textAlign: 'left', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>FOUNDER</th>
+              <th style={{ textAlign: 'right', padding: '15px 20px', fontSize: 11, color: '#86868B' }}>MANAGE</th>
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((u) => (
+            {filteredUsers.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid #F5F5F7' }}>
                 <td style={{ padding: '15px 20px' }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{u.displayName || u.email?.split('@')[0]}</div>
-                  <div style={{ fontSize: 12, color: '#86868B' }}>{u.email}</div>
+                  <div style={{ fontSize: 11, color: '#86868B' }}>{u.email}</div>
                 </td>
                 <td style={{ padding: '15px 20px' }}>
-                  <button 
-                    onClick={() => toggleApproval(u)}
-                    style={{ 
-                      padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, border: 'none', cursor: 'pointer',
-                      background: u.isApproved ? '#30D158' : '#FF9500', color: 'white'
-                    }}
-                  >
-                    {u.isApproved ? 'APPROVED' : 'PENDING'}
-                  </button>
-                </td>
-                <td style={{ padding: '15px 20px' }}>
-                  <button 
-                    onClick={() => toggleAdmin(u)}
-                    style={{ 
-                      padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, border: 'none', cursor: 'pointer',
-                      background: u.role === 'admin' ? '#1D1D1F' : '#F2F2F7',
-                      color: u.role === 'admin' ? 'white' : '#1D1D1F'
-                    }}
-                  >
-                    {u.role === 'admin' ? 'ADMIN' : 'USER'}
-                  </button>
-                </td>
-                <td style={{ padding: '15px 20px' }}>
-                  <button 
-                    onClick={() => toggleFounder(u)}
-                    style={{ 
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                      background: u.isFounder ? 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)' : 'white',
-                      color: u.isFounder ? 'white' : '#86868B',
-                      border: u.isFounder ? 'none' : '1px solid #E5E5EA'
-                    }}
-                  >
-                    <Crown weight={u.isFounder ? "fill" : "bold"} size={14} />
-                    {u.isFounder ? 'FOUNDER' : 'ASSIGN'}
-                  </button>
-                </td>
-                <td style={{ padding: '15px 20px', fontSize: 12, color: '#1D1D1F' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Clock size={14} color="#86868B" />
-                      {formatLastLogin(u.lastLogin)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 40, height: 4, background: '#E5E5EA', borderRadius: 2 }}>
+                            <div style={{ width: `${u.avgAdherence || 0}%`, height: '100%', background: (u.avgAdherence || 0) > 70 ? '#30D158' : '#FF9500', borderRadius: 2 }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{u.avgAdherence || 0}%</span>
                     </div>
                 </td>
+                <td style={{ padding: '15px 20px' }}>
+                    <button 
+                        onClick={() => toggleFounder(u)}
+                        style={{ border: 'none', background: u.isFounder ? '#AF52DE' : '#F2F2F7', color: u.isFounder ? 'white' : '#86868B', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                    >
+                        {u.isFounder ? 'FOUNDER' : 'ASSIGN'}
+                    </button>
+                </td>
                 <td style={{ padding: '15px 20px', textAlign: 'right' }}>
-                  <button onClick={() => deleteUser(u)} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', opacity: 0.4 }}>
+                  <button onClick={() => deleteUser(u)} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', opacity: 0.5 }}>
                     <Trash size={18} />
                   </button>
                 </td>

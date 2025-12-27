@@ -72,10 +72,33 @@ function App() {
           <Crown size={64} weight="fill" color="#AF52DE" />
           <h2 style={{ fontSize: 24, fontWeight: 800, marginTop: 24, marginBottom: 8 }}>Account Pending Approval</h2>
           <p style={{ color: '#86868B', fontSize: 15, lineHeight: 1.5, marginBottom: 24 }}>Welcome to the DBT Network. For exclusivity reasons, your access is currently being verified by an admin.</p>
-          <div style={{ padding: 20, background: '#F5F5F7', borderRadius: 15, marginBottom: 30 }}>
-            <p style={{ fontSize: 13, color: '#1D1D1F', fontWeight: 600, margin: 0 }}>Need assistance or want to apply for Founder status?</p>
-            <a href="mailto:support@yourdomain.com" style={{ color: '#007AFF', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>Contact Network Admin</a>
+          
+          <div style={{ padding: '24px 20px', background: '#F5F5F7', borderRadius: 20, marginBottom: 30 }}>
+            <p style={{ fontSize: 13, color: '#1D1D1F', fontWeight: 700, margin: '0 0 15px 0' }}>Skip the wait with Founder Status</p>
+            
+            {/* STRIPE PAYMENT LINK KNOP */}
+            <button 
+              onClick={() => window.location.href = 'https://buy.stripe.com/test_6oUaEQf6u0eQ70a8nT1ZS00'}
+              style={{ 
+                width: '100%', 
+                padding: '14px', 
+                background: 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '12px', 
+                fontWeight: 800, 
+                fontSize: '12px', 
+                cursor: 'pointer',
+                marginBottom: '15px',
+                letterSpacing: '0.5px'
+              }}
+            >
+              GET FOUNDER STATUS (€99)
+            </button>
+
+            <a href="mailto:support@yourdomain.com" style={{ color: '#86868B', textDecoration: 'none', fontSize: 11, fontWeight: 600 }}>Contact Network Admin</a>
           </div>
+          
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Sign Out</button>
         </div>
       </div>
