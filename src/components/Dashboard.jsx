@@ -5,6 +5,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PlusCircle, Bank, Sparkle, Pulse } from '@phosphor-icons/react';
 import * as W from './DashboardWidgets';
 import WeeklyReviewWidget from './WeeklyReviewWidget'; 
+import NotificationBell from './NotificationBell'; // NIEUWE IMPORT
 
 // --- TCT COACH COMPONENT ---
 const TCTCoach = ({ trades, winrate, adherence }) => {
@@ -163,6 +164,10 @@ export default function Dashboard({ setView }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <h1 style={{ fontSize: isMobile ? '26px' : '32px', fontWeight: 800, margin: 0, letterSpacing: '-1px' }}>Cockpit</h1>
+              
+              {/* NIEUW: Notification Bell */}
+              <NotificationBell onClick={() => setView('settings')} />
+              
               {userProfile?.isFounder && <div style={{ background: 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)', color: 'white', padding: '4px 10px', borderRadius: '30px', fontSize: '9px', fontWeight: 800 }}>FOUNDER</div>}
             </div>
             {!isMobile && <p style={{ color: '#86868B', fontSize: '14px' }}>Strategic overview of your trading operations.</p>}

@@ -212,7 +212,7 @@ exports.analyzeVoiceTrade = onRequest({
         
         **INPUTS:** 1. **Audio:** Trader's voice reflection (Tone, Emotion, Content).
         2. **Technical Data (JSON):** ${tradeContext} 
-           *(Contains: Risk, P&L, Mistakes, Entry, SL, TP, MAE (Max Pain), MFE (Max Potential))*
+            *(Contains: Risk, P&L, Mistakes, Entry, SL, TP, MAE (Max Pain), MFE (Max Potential))*
 
         **YOUR ROLE:** The "Conscious Coach" (TCT).
         
@@ -366,5 +366,67 @@ exports.generateWeeklyReview = onCall({
   } catch (error) {
     console.error("Weekly Review Error:", error);
     throw new Error(error.message);
+  }
+});
+
+// --- 5. AI SUPPORT DRAFT GENERATOR ---
+// Leert van eerdere antwoorden in ai_training_logs om voorstellen te doen voor support tickets.
+exports.getAiSupportReply = onCall({
+  secrets: ["GEMINI_API_KEY"],
+  region: "europe-west1"
+}, async (request) => {
+  const { data, auth } = request;
+  if (!auth) throw new Error('unauthenticated');
+
+  const db = admin.firestore();
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const { ticketMessage } = data;
+
+  try {
+    // 1. Haal de laatste 10 succesvolle antwoorden op voor stijl-training (In-context learning)
+    const trainingSnap = await db.collection('ai_training_logs')
+      .orderBy('timestamp', 'desc')
+      .limit(10)
+      .get();
+
+    const eerdereAntwoorden = [];
+    trainingSnap.forEach(doc => {
+      const d = doc.data();
+      eerdereAntwoorden.push(`Gebruiker: ${d.question}\nAdmin (Jij): ${d.answer}`);
+    });
+
+    const trainingContext = eerdereAntwoorden.reverse().join("\n\n---\n\n");
+
+    const prompt = `
+      ### SYSTEM INSTRUCTION: DBT ADMIN AI ASSISTANT
+      
+      Jij bent de assistent van de Founders van DBT (Conscious Trader).
+      Jouw taak is een concept-antwoord te schrijven op een vraag/feedback van een gebruiker.
+      
+      **RICHTLIJNEN VOOR STIJL:**
+      - Professioneel, ondersteunend, maar direct (geen wollig taalgebruik).
+      - Gebruik "wij" (de founders).
+      - Houd het kort (max 3-4 zinnen).
+      
+      **CONTEXT VAN EERDERE ANTWOORDEN (GEBRUIK DEZE TONE-OF-VOICE):**
+      ${trainingContext}
+      
+      **NIEUWE VRAAG VAN GEBRUIKER:**
+      "${ticketMessage}"
+      
+      **JOUW CONCEPT ANTWOORD:**
+      Schrijf een antwoord in dezelfde taal als de vraag (meestal Nederlands).
+    `;
+
+    const result = await model.generateContent(prompt);
+    const draftText = result.response.text().trim();
+
+    return { draft: draftText };
+
+  } catch (error) {
+    console.error("AI Support Draft Error:", error);
+    return { draft: "Het spijt me, ik kon geen voorstel genereren. Probeer het handmatig." };
   }
 });

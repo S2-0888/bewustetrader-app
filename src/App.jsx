@@ -4,17 +4,19 @@ import { auth, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Crown, Flask, Flag // NIEUW: Flag toegevoegd
+  Gear, SignOut, ShieldCheck, Crown, Flask, Flag 
 } from '@phosphor-icons/react';
 
-// --- IMPORT ONBOARDING MODAL ---
+// --- IMPORT NIEUWE PUBLIC & BETA COMPONENTS ---
+import LandingPage from './components/LandingPage';
+import FeedbackWidget from './components/FeedbackWidget';
 import OnboardingModal from './components/OnboardingModal';
 
 import Dashboard from './components/Dashboard';
 import TradeLab from './components/TradeLab';
 import Portfolio from './components/Portfolio';
 import Finance from './components/Finance';
-import Goals from './components/Goals'; // NIEUW: Goals geïmporteerd
+import Goals from './components/Goals'; 
 import Settings from './components/Settings';
 import Login from './components/Login';
 import Admin from './components/Admin';
@@ -26,7 +28,8 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
 
-  // --- STATE VOOR ONBOARDING MODAL ---
+  // --- STATE VOOR LANDING PAGE & MODAL ---
+  const [showLogin, setShowLogin] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // --- VOEG DIT TOE VOOR DE DESKTOP/MOBILE CHECK ---
@@ -72,9 +75,27 @@ function App() {
     </div>
   );
 
-  if (!user) return <Login />;
+  // --- PUBLIC FLOW (Als niet ingelogd) ---
+  if (!user) {
+    if (showLogin) {
+      // Login component met een simpele 'Back' knop optie zou mooi zijn, maar voor nu puur Login
+      return (
+        <div style={{ position: 'relative' }}>
+            <button 
+                onClick={() => setShowLogin(false)}
+                style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, background: 'none', border: 'none', color: '#86868B', cursor: 'pointer', fontWeight: 600 }}
+            >
+                ← Back
+            </button>
+            <Login />
+        </div>
+      );
+    }
+    // Standaard: Toon de Landing Page
+    return <LandingPage onLoginClick={() => setShowLogin(true)} />;
+  }
 
-  const handleLogout = () => { auth.signOut(); };
+  const handleLogout = () => { auth.signOut(); setShowLogin(false); };
   const isAdmin = userProfile?.role === 'admin';
   const isApproved = userProfile?.isApproved || isAdmin;
 
@@ -147,7 +168,7 @@ function App() {
             <span>Finance</span>
           </button>
           
-          {/* NIEUWE KNOP VOOR VISION/GOALS */}
+          {/* KNOP VOOR VISION/GOALS */}
           <button className={`nav-item ${view === 'goals' ? 'active' : ''}`} onClick={() => setView('goals')}>
             <Flag size={20} weight={view === 'goals' ? "fill" : "bold"} />
             <span>Vision</span>
@@ -219,13 +240,14 @@ function App() {
         {view === 'tradelab' && <TradeLab />}
         {view === 'portfolio' && <Portfolio />}
         {view === 'finance' && <Finance />}
-        {view === 'goals' && <Goals />} {/* NIEUWE ROUTE VOOR GOALS */}
+        {view === 'goals' && <Goals />} 
         {view === 'settings' && <Settings />}
         {view === 'admin' && isAdmin && <Admin />}
         {view === 'design-lab' && isAdmin && <DesignLab />}
       </main>
 
-      {/* --- RENDER ONBOARDING MODAL --- */}
+      {/* --- BETA FEEDBACK & ONBOARDING --- */}
+      <FeedbackWidget />
       <OnboardingModal 
         isOpen={showOnboarding} 
         onClose={() => {
