@@ -10,7 +10,7 @@ import {
     ArrowCounterClockwise, Strategy, CheckCircle, 
     Warning, Tag, UploadSimple, Table, Database, Trash,
     ClockCounterClockwise, ChatCircleText, EnvelopeSimple, MagnifyingGlass,
-    LockSimple, PaperPlaneTilt, Robot
+    LockSimple, PaperPlaneTilt, Robot, ShieldCheck, WarningCircle
 } from '@phosphor-icons/react';
 import Papa from 'papaparse'; 
 
@@ -159,17 +159,25 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState('trading'); 
   const [activeConfig, setActiveConfig] = useState('strategies'); 
   const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [userProfile, setUserProfile] = useState(null); // Voor subscription info
   const [loading, setLoading] = useState(true);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [inputValue, setInputValue] = useState(''); 
   const [isWiping, setIsWiping] = useState(false);
   const [recentBatches, setRecentBatches] = useState([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
   // --- MESSAGING STATE ---
   const [myFeedback, setMyFeedback] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [replyInputs, setReplyInputs] = useState({});
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Listen for personal messages/feedback
   useEffect(() => {
@@ -179,10 +187,36 @@ export default function Settings() {
         where("userId", "==", auth.currentUser.uid), 
         orderBy("updatedAt", "desc")
     );
-    return onSnapshot(q, (snapshot) => {
+    const unsubFeedback = onSnapshot(q, (snapshot) => {
         setMyFeedback(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
     });
+
+    const unsubProfile = onSnapshot(doc(db, "users", auth.currentUser.uid), (snap) => {
+        if (snap.exists()) setUserProfile(snap.data());
+    });
+
+    return () => {
+        unsubFeedback();
+        unsubProfile();
+    }
   }, []);
+
+  // --- LOGICA VOOR SUBSCRIPTION PROGRESS ---
+  const getSubscriptionProgress = () => {
+    if (!userProfile?.currentPeriodEnd || !userProfile?.updatedAt) return 0;
+    
+    const start = userProfile.updatedAt.toDate ? userProfile.updatedAt.toDate().getTime() : new Date().getTime();
+    const end = userProfile.currentPeriodEnd.toDate ? userProfile.currentPeriodEnd.toDate().getTime() : new Date().getTime();
+    const now = new Date().getTime();
+    
+    if (now >= end) return 100;
+    
+    const totalDuration = end - start;
+    const elapsed = now - start;
+    const progress = Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
+    
+    return progress;
+  };
 
   const markRead = async (id) => {
     await updateDoc(doc(db, "beta_feedback", id), { isRead: true });
@@ -302,14 +336,14 @@ export default function Settings() {
             <p style={{ color: '#86868B' }}>Configure your trading ecosystem and communications.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 40 }}>
-          <div style={{ display:'flex', flexDirection:'column', gap: 5 }}>
-              <MenuButton label="Trading System" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
-              <MenuButton label="Migration Hub" icon={<Database size={20}/>} active={activeTab==='import'} onClick={()=>setActiveTab('import')} />
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: 40 }}>
+          <div style={{ display:'flex', flexDirection: isMobile ? 'row' : 'column', gap: 5, overflowX: isMobile ? 'auto' : 'visible' }}>
+              <MenuButton label="Trading" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
+              <MenuButton label="Migration" icon={<Database size={20}/>} active={activeTab==='import'} onClick={()=>setActiveTab('import')} />
               
               <div style={{ position: 'relative' }}>
                 <MenuButton 
-                  label="Message Center" 
+                  label="Messages" 
                   icon={<EnvelopeSimple size={20}/>} 
                   active={activeTab==='messages'} 
                   onClick={()=>setActiveTab('messages')} 
@@ -319,15 +353,15 @@ export default function Settings() {
                 )}
               </div>
 
-              <MenuButton label="Account" icon={<User size={20}/>} active={activeTab==='account'} onClick={()=>setActiveTab('account')} />
+              <MenuButton label="Billing" icon={<CreditCard size={20}/>} active={activeTab==='account'} onClick={()=>setActiveTab('account')} />
           </div>
 
           <div>
               {activeTab === 'trading' && (
                   <div className="bento-card" style={{ padding: 0, overflow:'hidden', minHeight: 500, display:'flex', flexDirection:'column', background: 'white' }}>
-                      <div style={{ padding: 15, borderBottom: '1px solid #F2F2F7', background:'#F9F9F9', display:'flex', gap:5 }}>
+                      <div style={{ padding: 15, borderBottom: '1px solid #F2F2F7', background:'#F9F9F9', display:'flex', gap:5, overflowX: 'auto' }}>
                           {CATEGORIES.map(cat => (
-                              <button key={cat.id} onClick={() => setActiveConfig(cat.id)} style={{ flex: 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding: '10px', borderRadius: 8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeConfig === cat.id ? 'white' : 'transparent', color: activeConfig === cat.id ? '#1D1D1F' : '#86868B', boxShadow: activeConfig === cat.id ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>
+                              <button key={cat.id} onClick={() => setActiveConfig(cat.id)} style={{ flex: isMobile ? 'none' : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding: '10px 15px', borderRadius: 8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeConfig === cat.id ? 'white' : 'transparent', color: activeConfig === cat.id ? '#1D1D1F' : '#86868B', boxShadow: activeConfig === cat.id ? '0 2px 5px rgba(0,0,0,0.05)' : 'none', whiteSpace: 'nowrap' }}>
                                   <span style={{ color: activeConfig === cat.id ? cat.color : 'inherit' }}>{cat.icon}</span> {cat.label}
                               </button>
                           ))}
@@ -358,7 +392,7 @@ export default function Settings() {
                           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Migration Hub</h3>
                           <p style={{ fontSize: 13, color: '#86868B', marginTop: 4 }}>Grouped by batch ID. Your manual data is safe.</p>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
                           <ImportModule type="challenges" onImportComplete={fetchRecentBatches} />
                           <ImportModule type="payouts" onImportComplete={fetchRecentBatches} />
                       </div>
@@ -447,6 +481,13 @@ export default function Settings() {
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                                     <div style={{ background: '#F2F2F7', padding: '12px 18px', borderRadius: '18px 18px 2px 18px', maxWidth: '85%', fontSize: 14, fontWeight: 500 }}>
                                         {item.message}
+                                        {item.attachment && (
+                                            <div style={{ marginTop: 10 }}>
+                                                <a href={item.attachment} target="_blank" rel="noreferrer">
+                                                    <img src={item.attachment} style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E5EA' }} alt="Attachment" />
+                                                </a>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -459,6 +500,14 @@ export default function Settings() {
                                         </div>
                                         <div style={{ background: '#007AFF', color: 'white', padding: '12px 18px', borderRadius: '18px 18px 18px 2px', maxWidth: '85%', fontSize: 14, lineHeight: 1.5 }}>
                                             {item.reply}
+                                            {/* ADMIN ATTACHMENT DISPLAY */}
+                                            {item.replyAttachment && (
+                                                <div style={{ marginTop: 10 }}>
+                                                    <a href={item.replyAttachment} target="_blank" rel="noreferrer">
+                                                        <img src={item.replyAttachment} style={{ width: '100%', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)' }} alt="Admin Attachment" />
+                                                    </a>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -497,7 +546,97 @@ export default function Settings() {
                 </div>
               )}
 
-              {activeTab === 'account' && <div className="bento-card" style={{padding:40, background:'white'}}>Account settings & Security.</div>}
+              {activeTab === 'account' && (
+                <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                    <div style={{ marginBottom: 25 }}>
+                        <h2 style={{ fontSize: '24px', fontWeight: 900, margin: 0, letterSpacing: '-1.5px' }}>Subscription & Billing</h2>
+                        <p style={{ color: '#86868B', fontSize: 14, marginTop: 4 }}>Manage your membership and view payment history.</p>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 25 }}>
+                        
+                        {/* LINKS: CURRENT STATUS CARD */}
+                        <div className="bento-card" style={{ padding: 30, background: 'white', border: '1px solid #E5E5EA', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: 0, right: 0, padding: '15px', opacity: 0.05 }}>
+                                <ShieldCheck size={120} weight="fill" />
+                            </div>
+                            
+                            <div className="label-xs" style={{ color: '#007AFF', marginBottom: 20 }}>MEMBERSHIP STATUS</div>
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginBottom: 30 }}>
+                                <div style={{ 
+                                    width: 60, height: 60, borderRadius: 18, 
+                                    background: userProfile?.isApproved ? 'rgba(48, 209, 88, 0.1)' : 'rgba(255, 59, 48, 0.1)', 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center' 
+                                }}>
+                                    {userProfile?.isApproved ? <ShieldCheck size={32} color="#30D158" weight="fill" /> : <WarningCircle size={32} color="#FF3B30" weight="fill" />}
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 18, fontWeight: 800 }}>{userProfile?.isApproved ? 'Active Access' : 'Access Restricted'}</div>
+                                    <div style={{ fontSize: 13, color: '#86868B' }}>
+                                        {userProfile?.isFounder ? 'Exclusive Founder Member' : 'Standard Member'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ background: '#F5F5F7', padding: '20px', borderRadius: 16, marginBottom: 25 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 13, color: '#86868B', fontWeight: 600 }}>Renew Date:</span>
+                                    <span style={{ fontSize: 13, fontWeight: 800 }}>
+                                        {userProfile?.currentPeriodEnd ? new Date(userProfile.currentPeriodEnd.toDate()).toLocaleDateString('nl-NL', { day: '2-digit', month: 'long', year: 'numeric' }) : 'N/A'}
+                                    </span>
+                                </div>
+                                <div style={{ width: '100%', height: 6, background: '#E5E5EA', borderRadius: 3, overflow: 'hidden' }}>
+                                    <div style={{ 
+                                        width: `${getSubscriptionProgress()}%`, 
+                                        height: '100%', 
+                                        background: userProfile?.isApproved ? '#30D158' : '#FF3B30', 
+                                        borderRadius: 3,
+                                        transition: 'width 1s ease-in-out'
+                                    }} />
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={() => window.location.href = 'https://billing.stripe.com/p/login/test_YOUR_PORTAL_LINK'}
+                                style={{ 
+                                    width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #1D1D1F', 
+                                    background: 'transparent', color: '#1D1D1F', fontWeight: 700, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10
+                                }}
+                            >
+                                <CreditCard size={20} /> Manage Subscription in Stripe
+                            </button>
+                        </div>
+
+                        {/* RECHTS: BILLING LOGS */}
+                        <div className="bento-card" style={{ padding: 25, background: 'white', border: '1px solid #E5E5EA' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                                <ClockCounterClockwise size={22} weight="bold" color="#8E8E93" />
+                                <h4 style={{ fontWeight: 800, margin: 0 }}>Payment History</h4>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: 12 }}>
+                                <div style={{ padding: '12px 15px', borderBottom: '1px solid #F5F5F7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, fontWeight: 800 }}>Network Membership</div>
+                                        <div style={{ fontSize: 10, color: '#86868B' }}>
+                                            {userProfile?.createdAt?.toDate().toLocaleDateString('nl-NL')} • Visa **** 4242
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontSize: 12, fontWeight: 900 }}>€99.00</div>
+                                        <div style={{ fontSize: 9, color: '#30D158', fontWeight: 800 }}>PAID</div>
+                                    </div>
+                                </div>
+                                <p style={{ fontSize: 11, color: '#86868B', fontStyle: 'italic', marginTop: 10 }}>
+                                    Invoices are sent to <strong>{userProfile?.email}</strong>.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+              )}
           </div>
       </div>
       <style>{`

@@ -369,8 +369,7 @@ exports.generateWeeklyReview = onCall({
   }
 });
 
-// --- 5. AI SUPPORT DRAFT GENERATOR ---
-// Leert van eerdere antwoorden in ai_training_logs om voorstellen te doen voor support tickets.
+// --- 5. AI SUPPORT DRAFT GENERATOR (Updated with Vision) ---
 exports.getAiSupportReply = onCall({
   secrets: ["GEMINI_API_KEY"],
   region: "europe-west1"
@@ -380,12 +379,22 @@ exports.getAiSupportReply = onCall({
 
   const db = admin.firestore();
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  // We gebruiken gemini-2.5-flash voor Vision-mogelijkheden
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const { ticketMessage } = data;
+  const { ticketMessage, ticketId } = data;
 
   try {
-    // 1. Haal de laatste 10 succesvolle antwoorden op voor stijl-training (In-context learning)
+    // 1. Haal de bijlage op uit het Firestore document indien aanwezig
+    let attachmentData = null;
+    if (ticketId) {
+      const ticketDoc = await db.collection('beta_feedback').doc(ticketId).get();
+      if (ticketDoc.exists && ticketDoc.data().attachment) {
+        attachmentData = ticketDoc.data().attachment;
+      }
+    }
+
+    // 2. Haal de laatste 10 succesvolle antwoorden op voor stijl-training
     const trainingSnap = await db.collection('ai_training_logs')
       .orderBy('timestamp', 'desc')
       .limit(10)
@@ -399,12 +408,15 @@ exports.getAiSupportReply = onCall({
 
     const trainingContext = eerdereAntwoorden.reverse().join("\n\n---\n\n");
 
-    const prompt = `
-      ### SYSTEM INSTRUCTION: DBT ADMIN AI ASSISTANT
+    const systemPrompt = `
+      ### SYSTEM INSTRUCTION: DBT ADMIN AI ASSISTANT (VISION ENABLED)
       
       Jij bent de assistent van de Founders van DBT (Conscious Trader).
       Jouw taak is een concept-antwoord te schrijven op een vraag/feedback van een gebruiker.
       
+      **VISION TASK:**
+      Als er een afbeelding is bijgevoegd, analyseer deze dan op foutmeldingen, UI-problemen of technische bugs. Gebruik deze visuele informatie om een specifiek antwoord te geven.
+
       **RICHTLIJNEN VOOR STIJL:**
       - Professioneel, ondersteunend, maar direct (geen wollig taalgebruik).
       - Gebruik "wij" (de founders).
@@ -420,7 +432,20 @@ exports.getAiSupportReply = onCall({
       Schrijf een antwoord in dezelfde taal als de vraag (meestal Nederlands).
     `;
 
-    const result = await model.generateContent(prompt);
+    let promptParts = [{ text: systemPrompt }];
+
+    // Als er een afbeelding is, voegen we deze toe aan de prompt
+    if (attachmentData) {
+      const base64Data = attachmentData.split(',')[1]; // Strip de data:image/png;base64 prefix
+      promptParts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: base64Data
+        }
+      });
+    }
+
+    const result = await model.generateContent(promptParts);
     const draftText = result.response.text().trim();
 
     return { draft: draftText };

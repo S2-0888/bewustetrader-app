@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { 
   collection, query, onSnapshot, doc, updateDoc, 
   deleteDoc, setDoc, orderBy, limit, addDoc, serverTimestamp, where 
 } from 'firebase/firestore';
-// TOEGEVOEGD: Imports voor Cloud Functions
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { 
   ShieldCheck, Crown, Trash, Check, LinkSimple, 
@@ -14,11 +13,12 @@ import {
   Brain, ListDashes, Shield, PlusCircle, DownloadSimple,
   GearSix, Lock, ToggleLeft, ToggleRight, Sliders,
   EnvelopeSimple, Bug, Lightbulb, ChatTeardropText, PaperPlaneTilt,
-  Funnel, Robot, CaretRight, CheckCircle, LockSimple 
+  Funnel, Robot, CaretRight, CheckCircle, LockSimple, Camera,
+  CalendarPlus 
 } from '@phosphor-icons/react';
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState('mission'); // mission, intelligence, logs, settings, inbox
+  const [activeTab, setActiveTab] = useState('mission'); 
   const [users, setUsers] = useState([]);
   const [tctLogs, setTctLogs] = useState([]); 
   const [loading, setLoading] = useState(true);
@@ -26,13 +26,14 @@ export default function Admin() {
   // Feedback State
   const [feedbackItems, setFeedbackItems] = useState([]);
   const [replyText, setReplyText] = useState({});
+  const [replyAttachment, setReplyAttachment] = useState({});
   const [activeReplyId, setActiveReplyId] = useState(null);
 
-  // NIEUWE INBOX FILTERS & SEARCH
+  // Inbox Filters & Search
   const [inboxSearch, setInboxSearch] = useState('');
-  const [inboxFilter, setInboxFilter] = useState('all'); // all, unread, read
+  const [inboxFilter, setInboxFilter] = useState('all'); 
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [selectedMessage, setSelectedMessage] = useState(null); // Voor 2-koloms selectie
+  const [selectedMessage, setSelectedMessage] = useState(null); 
 
   // Platform Settings State
   const [settings, setSettings] = useState({
@@ -52,7 +53,7 @@ export default function Admin() {
 
   useEffect(() => {
     // 1. Listen for users
-    const unsubUsers = onSnapshot(query(collection(db, "users")), (snap) => {
+    const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("createdAt", "desc")), (snap) => {
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
@@ -73,7 +74,7 @@ export default function Admin() {
         setTctLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 5. Listen for Beta Feedback (Gesorteerd op laatst geupdate voor loops)
+    // 5. Listen for Beta Feedback
     const unsubFeedback = onSnapshot(query(collection(db, "beta_feedback"), orderBy("updatedAt", "desc")), (snap) => {
       setFeedbackItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -81,21 +82,76 @@ export default function Admin() {
     return () => { unsubUsers(); unsubBroadcast(); unsubSettings(); unsubLogs(); unsubFeedback(); };
   }, []);
 
+  // --- SUBSCRIPTION LOGICA ---
+  const extendAccess = async (userId) => {
+    if (!window.confirm("Are you sure you want to extend this user's access by 30 days?")) return;
+    
+    const newExpiry = new Date();
+    newExpiry.setDate(newExpiry.getDate() + 30); 
+    
+    await updateDoc(doc(db, "users", userId), {
+      subscriptionStatus: 'active',
+      currentPeriodEnd: newExpiry,
+      isApproved: true, 
+      updatedAt: serverTimestamp()
+    });
+    alert("Access extended successfully.");
+  };
+
+  const revokeAccess = async (userId) => {
+    if (!window.confirm("WARNING: Are you sure you want to revoke access and block this trader immediately?")) return;
+    
+    await updateDoc(doc(db, "users", userId), {
+      subscriptionStatus: 'expired',
+      isApproved: false,
+      updatedAt: serverTimestamp()
+    });
+    alert("Access revoked.");
+  };
+
+  const toggleFounder = async (user) => {
+    if (!window.confirm(`Switch Founder status for ${user.displayName || 'this user'}?`)) return;
+    await updateDoc(doc(db, "users", user.id), { isFounder: !user.isFounder });
+  };
+
+  const formatExpiry = (timestamp) => {
+    if (!timestamp) return <span style={{ color: '#8E8E93' }}>No access set</span>;
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const isExpired = date < now;
+    
+    return (
+        <span style={{ color: isExpired ? '#FF3B30' : '#30D158', fontWeight: 700 }}>
+            {date.toLocaleDateString('nl-NL')} {isExpired ? '(EXPIRED)' : ''}
+        </span>
+    );
+  };
+
   // --- ACTIONS: FEEDBACK (TICKETS) ---
+  const handleAdminFileChange = (id, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReplyAttachment(prev => ({ ...prev, [id]: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const sendReply = async (id, originalMessage, userEmail) => {
     const text = replyText[id];
+    const attachment = replyAttachment[id]; 
     if (!text) return;
-    if (confirm("Antwoord versturen naar gebruiker?")) {
-        // Update de feedback status naar 'replied' en ververs de updatedAt voor de loop
+    if (confirm("Send this reply to the trader?")) {
         await updateDoc(doc(db, "beta_feedback", id), { 
             reply: text,
+            replyAttachment: attachment || null,
             replyAt: serverTimestamp(),
             updatedAt: serverTimestamp(), 
             status: 'replied',
             isRead: false
         });
 
-        // LOG VOOR AI TRAINING
         await addDoc(collection(db, "ai_training_logs"), {
           type: 'support_reply',
           question: originalMessage,
@@ -106,13 +162,13 @@ export default function Admin() {
 
         setActiveReplyId(null);
         setReplyText(prev => ({...prev, [id]: ''})); 
-        // Update lokale selectie
-        setSelectedMessage(prev => ({ ...prev, reply: text, replyAt: { toDate: () => new Date() }, status: 'replied' }));
+        setReplyAttachment(prev => ({...prev, [id]: null}));
+        setSelectedMessage(prev => ({ ...prev, reply: text, replyAttachment: attachment, replyAt: { toDate: () => new Date() }, status: 'replied' }));
     }
   };
 
   const closeTicket = async (id) => {
-    if (confirm("Ticket sluiten? De gebruiker kan dan niet meer reageren in deze thread.")) {
+    if (confirm("Close this ticket? The user will no longer be able to reply.")) {
         await updateDoc(doc(db, "beta_feedback", id), { 
             status: 'closed',
             updatedAt: serverTimestamp()
@@ -127,26 +183,30 @@ export default function Admin() {
         const functions = getFunctions(undefined, 'europe-west1');
         const getAiSupportReply = httpsCallable(functions, 'getAiSupportReply');
         const result = await getAiSupportReply({ ticketMessage: message });
-        
         if (result.data && result.data.draft) {
             setReplyText(prev => ({ ...prev, [id]: result.data.draft }));
         }
     } catch (error) {
         console.error("AI Draft Error:", error);
-        alert("Kon geen AI concept genereren.");
+        alert("Could not generate AI draft.");
     } finally {
         setIsAiLoading(false);
     }
   };
 
   const deleteFeedbackItem = async (id) => {
-    if (confirm("Feedback verwijderen?")) {
+    if (confirm("Permanently delete this feedback item?")) {
       await deleteDoc(doc(db, "beta_feedback", id));
       setSelectedMessage(null);
     }
   };
 
-  // Filter Logica voor de Inbox
+  const deleteUser = async (id) => {
+    if (confirm("PERMANENTLY DELETE USER? This action cannot be undone and all data will be lost.")) {
+      await deleteDoc(doc(db, "users", id));
+    }
+  };
+
   const filteredInbox = feedbackItems.filter(item => {
     const matchesSearch = item.userEmail?.toLowerCase().includes(inboxSearch.toLowerCase());
     if (inboxFilter === 'unread') return matchesSearch && item.status !== 'replied' && item.status !== 'closed';
@@ -154,68 +214,23 @@ export default function Admin() {
     return matchesSearch;
   });
 
-  // --- ANALYTICS CALCULATIONS ---
-  const now = new Date().getTime();
-  const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000);
-  
-  const activeToday = users.filter(u => u.lastLogin && (now - u.lastLogin) < 86400000).length;
-  const communityDiscipline = users.length > 0 ? Math.round(users.reduce((acc, u) => acc + (u.avgAdherence || 0), 0) / users.length) : 0;
-  const activeThisMonth = users.filter(u => u.lastLogin && (now - u.lastLogin) < (86400000 * 30)).length;
-  const stickiness = activeThisMonth > 0 ? Math.round((activeToday / activeThisMonth) * 100) : 0;
+  // --- ANALYTICS ---
+  const nowTime = new Date().getTime();
+  const oneWeekAgo = nowTime - (7 * 24 * 60 * 60 * 1000);
+  const activeToday = users.filter(u => u.lastLogin && (nowTime - u.lastLogin) < 86400000).length;
   const newTradersThisWeek = users.filter(u => u.createdAt && u.createdAt.toDate().getTime() > oneWeekAgo).length;
-  const convertedUsers = users.filter(u => (u.avgAdherence || 0) > 0).length;
-  const activationRate = users.length > 0 ? Math.round((convertedUsers / users.length) * 100) : 0;
-  const churnRateEstimate = users.length > 0 ? Math.round((users.filter(u => u.lastLogin && (now - u.lastLogin) > (14 * 24 * 60 * 60 * 1000)).length / users.length) * 100) : 0;
-  const totalFounders = users.filter(u => u.isFounder).length;
-
-  const vaultStats = users.reduce((acc, u) => {
-    const style = u.vaultVersion || 'V1';
-    acc[style] = (acc[style] || 0) + 1;
-    return acc;
-  }, {});
 
   const updateGlobalSetting = async (key, value) => {
-    try {
-      setSettings(prev => ({ ...prev, [key]: value }));
-      await setDoc(doc(db, "system", "settings"), { [key]: value }, { merge: true });
-      await addDoc(collection(db, "system_logs", "admin_actions"), {
-        action: `Changed ${key} to ${value}`,
-        admin: 'Admin',
-        timestamp: serverTimestamp()
-      });
-    } catch (err) {
-      console.error("Error updating settings:", err);
-      alert("Fout bij bijwerken instellingen.");
-    }
-  };
-
-  const downloadCSV = (data, filename) => {
-    if (data.length === 0) return;
-    const headers = Object.keys(data[0]);
-    const csvContent = [
-      headers.join(','),
-      ...data.map(row => headers.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = window.URL.createObjectURL(blob);
-    a.download = `${filename}.csv`;
-    a.click();
-  };
-
-  const exportLogs = () => {
-    const data = tctLogs.map(l => ({ Date: l.createdAt?.toDate().toLocaleString(), Trader: l.userName, Insight: l.insight }));
-    downloadCSV(data, 'AI_Insights');
-  };
-
-  const exportTraders = () => {
-    const data = users.map(u => ({ Name: u.displayName, Email: u.email, Adherence: u.avgAdherence, Founder: u.isFounder, LastActive: u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never' }));
-    downloadCSV(data, 'Traders_Registry');
+    const actionText = value ? 'ENABLE' : 'DISABLE';
+    if (!window.confirm(`Are you sure you want to ${actionText} ${key}?`)) return;
+    
+    setSettings(prev => ({ ...prev, [key]: value }));
+    await setDoc(doc(db, "system", "settings"), { [key]: value }, { merge: true });
   };
 
   const formatLastActive = (timestamp) => {
     if (!timestamp) return { text: 'Never', color: '#8E8E93' };
-    const diff = now - timestamp;
+    const diff = nowTime - timestamp;
     const hours = Math.floor(diff / 3600000);
     if (hours < 1) return { text: 'Just now', color: '#30D158' };
     if (hours < 24) return { text: `${hours}h ago`, color: '#30D158' };
@@ -223,16 +238,9 @@ export default function Admin() {
     return { text: `${days}d ago`, color: days > 7 ? '#FF3B30' : '#1C1C1E' };
   };
 
-  const getArchetype = (u) => {
-    const adh = u.avgAdherence || 0;
-    if (adh >= settings.machineThreshold) return { label: 'THE MACHINE', color: '#30D158', icon: <ArrowsClockwise size={12} weight="bold" /> };
-    if (adh >= settings.sniperThreshold) return { label: 'THE SNIPER', color: '#007AFF', icon: <Eye size={12} weight="bold" /> };
-    if (adh < 50 && adh > 0) return { label: 'THE GAMBLER', color: '#FF3B30', icon: <WarningCircle size={12} weight="bold" /> };
-    return { label: 'NEWBIE', color: '#8E8E93', icon: <PlusCircle size={12} weight="bold" /> };
-  };
-
   const sendBroadcast = async () => {
     if(!broadcast) return;
+    if(!confirm("Push this broadcast live to all users?")) return;
     const exp = new Date(); exp.setHours(exp.getHours() + Number(duration));
     await setDoc(doc(db, "system", "broadcast"), { message: broadcast, active: true, expiresAt: exp.getTime(), updatedAt: serverTimestamp() });
     setBroadcast('');
@@ -253,7 +261,6 @@ export default function Admin() {
         </button>
       </div>
 
-      {/* TABS NAVIGATION */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 30, background: 'rgba(0,0,0,0.03)', padding: 4, borderRadius: 14, width: 'fit-content' }}>
         {[
           { id: 'mission', label: 'Mission Control', icon: <ShieldCheck weight="fill" /> },
@@ -272,9 +279,7 @@ export default function Admin() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginBottom: 25 }}>
             <div className="bento-card" style={{ background: 'white' }}><span className="label-xs">GROWTH VELOCITY</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10, color: '#007AFF' }}>+{newTradersThisWeek}</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>New traders (last 7d)</div></div>
-            <div className="bento-card" style={{ background: 'white' }}><span className="label-xs">ACTIVATION RATE</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{activationRate}%</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>Users with trade logs</div></div>
-            <div className="bento-card" style={{ background: '#FFF', border: '1px solid rgba(255, 59, 48, 0.1)' }}><span className="label-xs" style={{ color: '#FF3B30' }}>CHURN RISK</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10, color: '#FF3B30' }}>{churnRateEstimate}%</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>Inactive for 14d+</div></div>
-            <div className="bento-card" style={{ background: 'linear-gradient(135deg, #1C1C1E 0%, #0D0D0E 100%)', color: 'white' }}><span className="label-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>STICKINESS</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{stickiness}%</div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 5 }}>Daily vs Monthly active</div></div>
+            <div className="bento-card" style={{ background: 'white' }}><span className="label-xs">ACTIVE TODAY</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{activeToday}</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>Traders logged in</div></div>
           </div>
           <div className="bento-card" style={{ background: '#FFF', border: '1px solid #E5E5EA' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -300,7 +305,11 @@ export default function Admin() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#F9F9FB' }}>
               <tr style={{ textAlign: 'left', fontSize: 11, color: '#8E8E93', textTransform: 'uppercase', letterSpacing: 1 }}>
-                <th style={{ padding: '15px 25px' }}>Trader</th><th>Performance</th><th>Last Active</th><th style={{ textAlign: 'right', padding: '15px 25px' }}>Management</th>
+                <th style={{ padding: '15px 25px' }}>Trader</th>
+                <th>Status</th>
+                <th>Subscription End</th>
+                <th>Last Active</th>
+                <th style={{ textAlign: 'right', padding: '15px 25px' }}>Management</th>
               </tr>
             </thead>
             <tbody>
@@ -310,10 +319,43 @@ export default function Admin() {
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{u.displayName || 'Anonymous'}</div>
                       <div style={{ fontSize: 11, color: '#8E8E93' }}>{u.email}</div>
                     </td>
-                    <td><div style={{ width: 40, height: 4, background: '#E5E5EA', borderRadius: 2 }}><div style={{ width: `${u.avgAdherence || 0}%`, height: '100%', background: '#007AFF', borderRadius: 2 }} /></div></td>
+                    <td>
+                        {u.isApproved ? (
+                            <span style={{ color: '#30D158', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <CheckCircle weight="fill" size={14} /> APPROVED
+                            </span>
+                        ) : (
+                            <span style={{ color: '#FF9F0A', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Clock weight="fill" size={14} /> PENDING
+                            </span>
+                        )}
+                    </td>
+                    <td style={{ fontSize: 12 }}>{formatExpiry(u.currentPeriodEnd)}</td>
                     <td style={{ fontSize: 12, fontWeight: 600 }}>{formatLastActive(u.lastLogin).text}</td>
                     <td style={{ textAlign: 'right', padding: '15px 25px' }}>
-                      <button onClick={() => updateDoc(doc(db, "users", u.id), { isFounder: !u.isFounder })} style={{ border: 'none', background: u.isFounder ? '#AF52DE15' : '#F2F2F7', color: u.isFounder ? '#AF52DE' : '#8E8E93', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800 }}>FOUNDER</button>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button 
+                            onClick={() => extendAccess(u.id)}
+                            title="Extend 30 Days"
+                            style={{ background: '#30D15815', border: 'none', color: '#30D158', padding: '6px 10px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                            <CalendarPlus size={14} /> +30D
+                        </button>
+                        <button 
+                            onClick={() => revokeAccess(u.id)}
+                            title="Revoke Access"
+                            style={{ background: '#FF3B3015', border: 'none', color: '#FF3B30', padding: '6px', borderRadius: 8, cursor: 'pointer' }}
+                        >
+                            <XCircle size={18} />
+                        </button>
+                        <button 
+                            onClick={() => toggleFounder(u)}
+                            style={{ border: 'none', background: u.isFounder ? '#AF52DE15' : '#F2F2F7', color: u.isFounder ? '#AF52DE' : '#8E8E93', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                        >
+                            FOUNDER
+                        </button>
+                        <button onClick={() => deleteUser(u.id)} style={{ border: 'none', background: 'none', color: '#FF3B30', opacity: 0.3, cursor: 'pointer' }}><Trash size={18}/></button>
+                      </div>
                     </td>
                   </tr>
               ))}
@@ -322,7 +364,6 @@ export default function Admin() {
         </div>
       )}
 
-      {/* --- INBOX: GMAIL/OUTLOOK STYLE MET THREADING & LOCKS --- */}
       {activeTab === 'inbox' && (
          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: 'calc(100vh - 250px)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, background: 'white', padding: '15px 25px', borderRadius: 16, border: '1px solid #E5E5EA' }}>
@@ -387,6 +428,14 @@ export default function Admin() {
                     <div style={{ marginBottom: 40 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 10, textTransform: 'uppercase' }}>Message</div>
                       <div style={{ fontSize: 15, color: '#1D1D1F', background: '#F9F9FB', padding: 20, borderRadius: 12, lineHeight: 1.6 }}>{selectedMessage.message}</div>
+                      {selectedMessage.attachment && (
+                        <div style={{ marginTop: 20 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 10, textTransform: 'uppercase' }}>Screenshot</div>
+                          <a href={selectedMessage.attachment} target="_blank" rel="noreferrer">
+                            <img src={selectedMessage.attachment} style={{ maxWidth: '100%', borderRadius: 12, border: '1px solid #E5E5EA' }} alt="Attachment" />
+                          </a>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ borderTop: '1px solid #F5F5F7', paddingTop: 30 }}>
@@ -402,13 +451,39 @@ export default function Admin() {
                               <div style={{ background: 'rgba(48, 209, 88, 0.05)', padding: 15, borderRadius: 12, borderLeft: '4px solid #30D158', marginBottom: 10 }}>
                                 <div style={{ fontSize: 10, fontWeight: 800, color: '#30D158', marginBottom: 4 }}>LAST SENT REPLY:</div>
                                 <div style={{ fontSize: 14 }}>{selectedMessage.reply}</div>
+                                {selectedMessage.replyAttachment && (
+                                    <div style={{ marginTop: 10 }}>
+                                        <img src={selectedMessage.replyAttachment} style={{ width: 120, borderRadius: 8, border: '1px solid #E5E5EA' }} alt="Reply Attachment" />
+                                    </div>
+                                )}
                               </div>
                           )}
-                          <textarea value={replyText[selectedMessage.id] || ''} onChange={e => setReplyText({...replyText, [selectedMessage.id]: e.target.value})} placeholder="Type follow-up or reply..." style={{ width: '100%', padding: '15px', borderRadius: 12, border: '1px solid #E5E5EA', outline: 'none', minHeight: 150, fontFamily: 'inherit' }} />
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <button onClick={() => generateAiDraft(selectedMessage.id, selectedMessage.message)} disabled={isAiLoading === selectedMessage.id} style={{ background: '#1C1C1E', color: 'white', border: 'none', borderRadius: 10, padding: '10px 20px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                {isAiLoading === selectedMessage.id ? <ArrowsClockwise size={18} className="spinner" /> : <Robot size={18} weight="fill" />} AI Draft
-                              </button>
+                          <div style={{ position: 'relative' }}>
+                            <textarea 
+                                value={replyText[selectedMessage.id] || ''} 
+                                onChange={e => setReplyText({...replyText, [selectedMessage.id]: e.target.value})} 
+                                placeholder="Type follow-up or reply..." 
+                                style={{ width: '100%', padding: '15px', borderRadius: 12, border: '1px solid #E5E5EA', outline: 'none', minHeight: 150, fontFamily: 'inherit' }} 
+                            />
+                            {replyAttachment[selectedMessage.id] && (
+                                <div style={{ position: 'absolute', bottom: 15, left: 15, display: 'flex', alignItems: 'center', gap: 10, background: 'white', padding: '5px 10px', borderRadius: 8, border: '1px solid #E5E5EA' }}>
+                                    <img src={replyAttachment[selectedMessage.id]} style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} alt="Preview" />
+                                    <Trash size={16} color="#FF3B30" style={{ cursor: 'pointer' }} onClick={() => setReplyAttachment(prev => ({ ...prev, [selectedMessage.id]: null }))} />
+                                </div>
+                            )}
+                          </div>
+                          
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', gap: 10 }}>
+                                <button onClick={() => generateAiDraft(selectedMessage.id, selectedMessage.message)} disabled={isAiLoading === selectedMessage.id} style={{ background: '#1C1C1E', color: 'white', border: 'none', borderRadius: 10, padding: '10px 20px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {isAiLoading === selectedMessage.id ? <ArrowsClockwise size={18} className="spinner" /> : <Robot size={18} weight="fill" />} AI Draft
+                                </button>
+                                <label style={{ background: '#F2F2F7', color: '#1D1D1F', borderRadius: 10, padding: '10px 15px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
+                                    <Camera size={18} /> Attachment
+                                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleAdminFileChange(selectedMessage.id, e)} />
+                                </label>
+                              </div>
+
                               <button onClick={() => sendReply(selectedMessage.id, selectedMessage.message, selectedMessage.userEmail)} disabled={!replyText[selectedMessage.id]} style={{ background: '#007AFF', color: 'white', border: 'none', borderRadius: 10, padding: '10px 30px', cursor: 'pointer', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, opacity: replyText[selectedMessage.id] ? 1 : 0.5 }}>
                                 Send Reply <PaperPlaneTilt weight="fill" size={16}/>
                               </button>
@@ -426,6 +501,48 @@ export default function Admin() {
               </div>
             </div>
          </div>
+      )}
+
+      {activeTab === 'logs' && (
+        <div className="bento-card" style={{ background: 'white' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <span style={{ fontWeight: 900 }}>AI INSIGHT LOGS</span>
+                <button onClick={() => {/* logic to export */}} style={{ border: 'none', background: '#F2F2F7', padding: '8px 15px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Export CSV</button>
+            </div>
+            <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+                {tctLogs.map(log => (
+                    <div key={log.id} style={{ padding: '15px 0', borderBottom: '1px solid #F5F5F7' }}>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 5 }}>
+                            <span style={{ fontWeight: 800, fontSize: 13 }}>{log.userName || 'Unknown'}</span>
+                            <span style={{ color: '#8E8E93', fontSize: 11 }}>{log.createdAt?.toDate().toLocaleString()}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#444' }}>"{log.insight}"</div>
+                    </div>
+                ))}
+            </div>
+        </div>
+      )}
+
+      {activeTab === 'settings' && (
+        <div style={{ display: 'grid', gap: 20 }}>
+            <div className="bento-card" style={{ background: 'white' }}>
+                <h3 style={{ margin: '0 0 20px 0' }}>Global Controls</h3>
+                <div style={{ display: 'grid', gap: 15 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div><div style={{ fontWeight: 700 }}>Maintenance Mode</div><div style={{ fontSize: 12, color: '#86868B' }}>Lock platform for all users</div></div>
+                        <button onClick={() => updateGlobalSetting('maintenanceMode', !settings.maintenanceMode)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
+                            {settings.maintenanceMode ? <ToggleRight size={40} color="#FF3B30" weight="fill" /> : <ToggleLeft size={40} color="#C7C7CC" weight="fill" />}
+                        </button>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div><div style={{ fontWeight: 700 }}>Public Signups</div><div style={{ fontSize: 12, color: '#86868B' }}>Open door for new traders</div></div>
+                        <button onClick={() => updateGlobalSetting('signupOpen', !settings.signupOpen)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
+                            {settings.signupOpen ? <ToggleRight size={40} color="#30D158" weight="fill" /> : <ToggleLeft size={40} color="#C7C7CC" weight="fill" />}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
       )}
     </div>
   );
