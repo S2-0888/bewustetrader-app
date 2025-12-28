@@ -16,15 +16,20 @@ export default function FeedbackWidget() {
     setIsSending(true);
 
     try {
+      // Aangepast om aan te sluiten op de Threaded Inbox architectuur
       await addDoc(collection(db, "beta_feedback"), {
         userId: auth.currentUser?.uid || 'anonymous',
         userEmail: auth.currentUser?.email || 'anonymous',
         type,
         message,
-        path: window.location.pathname, // Waar waren ze toen ze dit meldden?
+        path: window.location.pathname,
         createdAt: serverTimestamp(),
-        status: 'new'
+        updatedAt: serverTimestamp(), // CRUCIAAL: Sortering in Admin werkt hierop
+        status: 'open',               // AANGEPAST: 'open' ipv 'new' voor Admin filters
+        isRead: true,                 // Gebruiker heeft zijn eigen eerste bericht gelezen
+        reply: null                   // Placeholder voor de loop
       });
+      
       setSent(true);
       setTimeout(() => {
         setSent(false);
