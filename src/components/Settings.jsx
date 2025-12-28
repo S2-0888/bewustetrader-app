@@ -193,7 +193,7 @@ export default function Settings() {
     if (!text) return;
     
     await updateDoc(doc(db, "beta_feedback", id), {
-        message: text, // Overschrijft bericht voor de loop (simpel model)
+        message: text, 
         status: 'open',
         isRead: true,
         updatedAt: serverTimestamp()
@@ -414,7 +414,7 @@ export default function Settings() {
                     ) : (
                       filteredMessages.map(item => {
                         const lastUpdate = item.updatedAt?.toDate() || new Date();
-                        const hoursSinceUpdate = (new Date() - lastUpdate) / 3600000;
+                        const hoursSinceUpdate = (new Date().getTime() - lastUpdate.getTime()) / 3600000;
                         const isLocked = item.status === 'closed' || hoursSinceUpdate > 24;
 
                         return (

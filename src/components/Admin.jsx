@@ -14,7 +14,7 @@ import {
   Brain, ListDashes, Shield, PlusCircle, DownloadSimple,
   GearSix, Lock, ToggleLeft, ToggleRight, Sliders,
   EnvelopeSimple, Bug, Lightbulb, ChatTeardropText, PaperPlaneTilt,
-  Funnel, Robot, CaretRight, CheckCircle, LockSimple // TOEGEVOEGD: LockSimple voor gesloten tickets
+  Funnel, Robot, CaretRight, CheckCircle, LockSimple 
 } from '@phosphor-icons/react';
 
 export default function Admin() {
@@ -90,7 +90,7 @@ export default function Admin() {
         await updateDoc(doc(db, "beta_feedback", id), { 
             reply: text,
             replyAt: serverTimestamp(),
-            updatedAt: serverTimestamp(), // Belangrijk voor threading
+            updatedAt: serverTimestamp(), 
             status: 'replied',
             isRead: false
         });
@@ -380,7 +380,7 @@ export default function Admin() {
                                 <LockSimple size={16} /> Close Ticket
                             </button>
                         )}
-                        <button onClick={() => deleteFeedbackItem(selectedMessage.id)} style={{ padding: 8, background: '#FF3B3010', border: 'none', color: '#FF3B30', cursor: 'pointer', borderRadius: 8 }}><Trash size={20}/></button>
+                        <button onClick={() => deleteFeedbackItem(selectedMessage.id)} style={{ padding: 8, background: '#FF3B3010', border: 'none', color: '#FF3B30', borderRadius: 8 }}><Trash size={20}/></button>
                       </div>
                     </div>
 
