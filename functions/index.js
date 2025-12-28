@@ -7,30 +7,81 @@ if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// --- HET DEFINITIEVE TCT BREIN (Dashboard Coach - Met Geheugen & Taalgevoel) ---
+// --- HULPFUNCTIE: HAAL BUSINESS & VISION DATA OP ---
+// Haalt Accounts (Portfolio), Payouts (Finance) én Goals (Vision) op.
+async function getBusinessContext(db, uid) {
+  try {
+    // 1. Haal Accounts op (Portfolio)
+    const accountsSnap = await db.collection('users').doc(uid).collection('accounts').get();
+    let totalInvested = 0;
+    let fundedCount = 0;
+    
+    accountsSnap.forEach(doc => {
+      const a = doc.data();
+      totalInvested += (Number(a.originalPrice) || Number(a.cost) || 0);
+      if (a.stage === 'Funded' && a.status === 'Active') fundedCount++;
+    });
+
+    // 2. Haal Payouts op (Finance)
+    const payoutsSnap = await db.collection('users').doc(uid).collection('payouts').get();
+    let totalPayouts = 0;
+    payoutsSnap.forEach(doc => {
+      totalPayouts += (Number(doc.data().convertedAmount) || 0);
+    });
+
+    const netProfit = totalPayouts - totalInvested;
+    const roi = (totalInvested > 0 && totalPayouts > 0) ? ((netProfit / totalInvested) * 100).toFixed(0) : "N/A";
+
+    // 3. HAAL DOELEN OP (VISION)
+    const goalsSnap = await db.collection('users').doc(uid).collection('goals').get();
+    const allGoals = goalsSnap.docs.map(d => d.data());
+    
+    // Zoek de 'ULTIMATE' goal (De Noordster)
+    const ultimateGoal = allGoals.find(g => g.type === 'ULTIMATE');
+    
+    // Zoek het eerstvolgende actieve doel (TARGET of REWARD) dat nog niet geclaimd is
+    // We sorteren op kosten, dus de goedkoopste eerst (= volgende stap)
+    const nextTarget = allGoals
+        .filter(g => g.type !== 'ULTIMATE' && g.status !== 'CLAIMED')
+        .sort((a, b) => Number(a.cost) - Number(b.cost))[0];
+
+    return { 
+        totalInvested, totalPayouts, netProfit, roi, fundedCount,
+        vision: {
+            ultimate: ultimateGoal ? ultimateGoal.title : "Financial Freedom",
+            nextTarget: nextTarget ? nextTarget.title : "Grow Capital",
+            nextTargetCost: nextTarget ? nextTarget.cost : 0
+        }
+    };
+  } catch (error) {
+    console.error("Error fetching business context:", error);
+    return null;
+  }
+}
+
+// --- HET TCT BREIN (Vision Aware) ---
 const TCT_SYSTEM_PROMPT = `
 ### SYSTEM INSTRUCTION: TCT (The Conscious Trader Coach)
 
 **IDENTITY:**
-You are TCT, the AI performance coach. You are not a financial advisor.
-Your goal is to connect the dots between the trader's **Execution** (P&L, Risk) and their **Psychology** (Voice Memos, Mindset Scores).
+You are TCT. You are an experienced head trader. You coach the **PERSON**, not just the P&L.
 
-**DATA YOU WILL SEE:**
-1.  **Winrate & Adherence:** The hard stats.
-2.  **Recent Trades:** A list of trades. CRUCIAL: Look for the field 'shadowAnalysis' (Context) and 'mindsetScore' (1-10).
+**YOUR MISSION:**
+Connect "Daily Execution" to the "Long Term Vision".
 
-**YOUR ANALYSIS LOGIC:**
-* **The Disconnect:** Winning with low Mindset Scores? -> "Lucky/Dangerous".
-* **The Spiral:** Consecutive losses + 'Revenge' tags? -> "Stop trading".
-* **The Growth:** Losing but High Mindset Score? -> "Good Process".
+**HOW TO USE CONTEXT (THE PSYCHOLOGICAL LEVER):**
+You have access to the user's **ULTIMATE GOAL** and **NEXT TARGET**.
+- **If reckless:** "Stop gambling. You are pushing your [ULTIMATE GOAL] further away."
+- **If disciplined:** "Good process. This is how you unlock [NEXT TARGET]."
+- **If profitable:** "Great work. Closer to [NEXT TARGET]."
 
 **CRITICAL: LANGUAGE RULE**
-* **SCAN** the text in 'recent trades' (coachNotes/shadowAnalysis).
-* **IF** the user's notes are in **Dutch** -> Your insight MUST be in **Dutch**.
-* **ELSE** (or if mixed) -> Keep it **English**.
+* **SCAN** the user's notes/input.
+* **IF** Dutch -> Output in **Dutch**.
+* **ELSE** -> Output in **English**.
 
 **TONE:**
-Direct, professional. Max 3 sentences. Focus on psychology.
+Direct, professional, succinct. Max 3 sentences.
 `;
 
 // --- 1. TCT AI COACH (Dashboard Insight) ---
@@ -41,18 +92,22 @@ exports.getTCTInsight = onCall({
   const { data, auth } = request;
   if (!auth) throw new Error('unauthenticated');
 
+  const db = admin.firestore();
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const { recentTrades, stats } = data;
 
-  // We sturen de notities mee zodat de AI de taal kan herkennen
+  // 1. Haal context op (Nu met Ultimate Goal & Next Target)
+  const businessStats = await getBusinessContext(db, auth.uid);
+
+  // 2. Trade Context
   const tradesWithContext = recentTrades.map(t => {
       return {
           pair: t.pair,
           pnl: t.pnl,
           mindsetScore: t.mindsetScore || "N/A",
-          coachNotes: t.shadowAnalysis || t.notes || "No text", // De AI leest dit om de taal te bepalen
+          coachNotes: t.shadowAnalysis || t.notes || "No text",
           emotion: t.emotionTag || "Unknown"
       };
   });
@@ -60,21 +115,27 @@ exports.getTCTInsight = onCall({
   const fullPrompt = `
     ${TCT_SYSTEM_PROMPT}
 
-    **USER STATUS:**
-    - Winrate: ${stats.winrate}%
-    - Adherence: ${stats.adherence}%
+    **THE TRADER'S VISION:**
+    - Ultimate Goal: "${businessStats?.vision.ultimate}"
+    - Next Target: "${businessStats?.vision.nextTarget}"
     
-    **RECENT ACTIVITY (Context for Language & Psychology):**
+    **CURRENT PERFORMANCE:**
+    - Winrate: ${stats.winrate}%
+    - Adherence Score: ${stats.adherence}%
+    - Active Funded Accounts: ${businessStats?.fundedCount || 0}
+    
+    **RECENT TRADES:**
     ${JSON.stringify(tradesWithContext, null, 2)}
 
-    **YOUR COACHING INSIGHT (Max 3 sentences, matching user's language):**
+    **YOUR COACHING INSIGHT:**
+    Analyze behavior. Use the VISION data to motivate or correct them.
   `;
 
   try {
     const result = await model.generateContent(fullPrompt);
     const tctResponseText = result.response.text();
 
-    await admin.firestore().collection('logs_tct').add({
+    await db.collection('logs_tct').add({
       userId: auth.uid,
       insight: tctResponseText,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -84,7 +145,7 @@ exports.getTCTInsight = onCall({
     return { insight: tctResponseText };
   } catch (error) {
     console.error("TCT Error:", error.message);
-    return { insight: "Gathering more data to build your profile. Stick to the plan." };
+    return { insight: "Focus on your blueprint. Recalibrating..." };
   }
 });
 
@@ -111,7 +172,7 @@ exports.stripeWebhook = onRequest({
   res.json({ received: true });
 });
 
-// --- 3. ANALYZE VOICE TRADE (Ongewijzigd - Was al slim) ---
+// --- 3. ANALYZE VOICE TRADE (Ongewijzigd) ---
 exports.analyzeVoiceTrade = onRequest({ 
   secrets: ["GEMINI_API_KEY"],
   region: "europe-west1",
@@ -153,11 +214,10 @@ exports.analyzeVoiceTrade = onRequest({
         2. **Technical Data (JSON):** ${tradeContext} 
            *(Contains: Risk, P&L, Mistakes, Entry, SL, TP, MAE (Max Pain), MFE (Max Potential))*
 
-        **YOUR ROLE:** The "Conscious Coach" (TCT). You are an experienced head trader.
+        **YOUR ROLE:** The "Conscious Coach" (TCT).
         
         **TASK: Synthesize Audio + Technical Reality:**
         Compare what the trader *says* vs what the *data* shows.
-        
         * **Check Risk:** Is 'risk' within limits? If high risk + loss -> "Gambler behavior".
         * **Check Execution (MAE/MFE):** - Did Price hit MAE (go past entry) near SL? -> Validate if stop was respected.
             - Was MFE high (big profit) but P&L is low/negative? -> "You let a winner turn into a loser" (Greed).
@@ -166,12 +226,11 @@ exports.analyzeVoiceTrade = onRequest({
         **CRITICAL: LANGUAGE RULE**
         - **DETECT** the language spoken in the audio.
         - **OUTPUT** 'journal_entry' and 'direct_feedback' MUST be in that **EXACT SAME LANGUAGE**.
-        - (If Dutch audio -> Dutch text. If English audio -> English text).
 
         **OUTPUT JSON FORMAT:**
         {
-          "journal_entry": "Structured summary in [SPOKEN LANGUAGE]. Combine the voice story with the hard data facts (e.g. 'Trade hit MFE but closed at BE'). Remove filler words.",
-          "direct_feedback": "Direct coaching advice in [SPOKEN LANGUAGE]. Be specific using the MAE/MFE/Risk data. Be strict but supportive. (e.g. 'Je MFE was hoog, waarom nam je geen winst?').",
+          "journal_entry": "Structured summary in [SPOKEN LANGUAGE]. Combine the voice story with the hard data facts.",
+          "direct_feedback": "Direct coaching advice in [SPOKEN LANGUAGE]. Be specific using the MAE/MFE/Risk data.",
           "shadow_analysis": "Short English analysis for database (e.g. 'User ignored SL, high MAE, lucky win, flagged greed').",
           "score": Number (1-10 based on discipline/calmness),
           "emotion_tag": "String (e.g. Panic, Zen, Revenge, Greed, Hope)"
@@ -195,7 +254,7 @@ exports.analyzeVoiceTrade = onRequest({
   if (req.rawBody) bb.end(req.rawBody); else req.pipe(bb);
 });
 
-// --- 4. WEEKLY REVIEW GENERATOR (Smart Language Detection - Ongewijzigd) ---
+// --- 4. WEEKLY REVIEW GENERATOR (Met Vision Check) ---
 exports.generateWeeklyReview = onCall({ 
   secrets: ["GEMINI_API_KEY"],
   region: "europe-west1" 
@@ -222,6 +281,9 @@ exports.generateWeeklyReview = onCall({
     if (tradesSnap.empty) {
       return { error: "No trades found this week." };
     }
+
+    // 1. Haal Vision Context op
+    const businessStats = await getBusinessContext(db, auth.uid);
 
     let totalPnl = 0;
     let wins = 0;
@@ -261,33 +323,31 @@ exports.generateWeeklyReview = onCall({
     const prompt = `
       ### SYSTEM INSTRUCTION: TCT Head of Performance (Weekly Review)
       
-      **INPUT:** Weekly trading data of a user.
-      **YOUR ROLE:** Review the week like a strict but fair hedge fund manager.
+      **THE TRADER'S VISION:**
+      - Ultimate Goal: "${businessStats?.vision.ultimate}"
+      - Next Target: "${businessStats?.vision.nextTarget}"
       
-      **DATA:**
-      - Total P&L: ${totalPnl.toFixed(2)}
-      - Winrate: ${winrate}% (Trades: ${tradesSnap.size})
+      **WEEKLY PERFORMANCE:**
+      - Weekly P&L: ${totalPnl.toFixed(2)}
+      - Winrate: ${winrate}%
       - Avg Mindset Score: ${avgMindset} / 10
-      - Top Mistakes: ${JSON.stringify(mistakeCounts)}
-      - Trade Log (Sample): ${JSON.stringify(tradesSummary.slice(0, 10))}
+      - Trade Log: ${JSON.stringify(tradesSummary.slice(0, 10))}
 
       **TASK:**
-      1. Analyze the correlation between Mindset Scores and P&L.
-      2. Identify the #1 Leak (Behavioral or Technical).
-      3. Create a Gameplan for next week.
+      1. **Analyze Correlation:** Mindset vs P&L.
+      2. **Vision Check:** Did this week bring them closer to "${businessStats?.vision.nextTarget}" or was it a distraction?
+      3. **Gameplan:** One clear rule for next week.
 
       **CRITICAL: SMART LANGUAGE DETECTION**
-      - Scan the 'coachNote' and 'mistakes' text in the Trade Log.
-      - **IF** the user's notes are clearly in **Dutch** -> Output JSON in **Dutch**.
-      - **ELSE** (or if uncertain/mixed) -> Output JSON in **ENGLISH**.
+      - Check user notes. IF Dutch -> Dutch. ELSE -> English.
 
       **OUTPUT JSON:**
       {
         "grade": "String (A+, A, B, C, D, F)",
         "headline": "String. Short, punchy summary.",
-        "analysis": "String. Deep dive review (max 4 sentences).",
-        "top_pitfall": "String. The main mistake.",
-        "gameplan": "String. Actionable rule for next week."
+        "analysis": "String. Deep dive review (referencing the Goal).",
+        "top_pitfall": "String.",
+        "gameplan": "String."
       }
     `;
 

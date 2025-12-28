@@ -4,13 +4,17 @@ import { auth, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Crown, Flask 
+  Gear, SignOut, ShieldCheck, Crown, Flask, Flag // NIEUW: Flag toegevoegd
 } from '@phosphor-icons/react';
+
+// --- IMPORT ONBOARDING MODAL ---
+import OnboardingModal from './components/OnboardingModal';
 
 import Dashboard from './components/Dashboard';
 import TradeLab from './components/TradeLab';
 import Portfolio from './components/Portfolio';
 import Finance from './components/Finance';
+import Goals from './components/Goals'; // NIEUW: Goals geïmporteerd
 import Settings from './components/Settings';
 import Login from './components/Login';
 import Admin from './components/Admin';
@@ -22,12 +26,21 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
 
+  // --- STATE VOOR ONBOARDING MODAL ---
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   // --- VOEG DIT TOE VOOR DE DESKTOP/MOBILE CHECK ---
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
+
+    // --- CHECK ONBOARDING STATUS ---
+    const hasSeenOnboarding = localStorage.getItem('tct_onboarding_completed');
+    if (!hasSeenOnboarding) {
+        setShowOnboarding(true);
+    }
 
     if (user) {
       setIsProfileLoading(true);
@@ -133,6 +146,12 @@ function App() {
             <ChartLineUp size={20} weight={view === 'finance' ? "fill" : "bold"} />
             <span>Finance</span>
           </button>
+          
+          {/* NIEUWE KNOP VOOR VISION/GOALS */}
+          <button className={`nav-item ${view === 'goals' ? 'active' : ''}`} onClick={() => setView('goals')}>
+            <Flag size={20} weight={view === 'goals' ? "fill" : "bold"} />
+            <span>Vision</span>
+          </button>
 
           {isAdmin && (
             <button 
@@ -200,10 +219,20 @@ function App() {
         {view === 'tradelab' && <TradeLab />}
         {view === 'portfolio' && <Portfolio />}
         {view === 'finance' && <Finance />}
+        {view === 'goals' && <Goals />} {/* NIEUWE ROUTE VOOR GOALS */}
         {view === 'settings' && <Settings />}
         {view === 'admin' && isAdmin && <Admin />}
         {view === 'design-lab' && isAdmin && <DesignLab />}
       </main>
+
+      {/* --- RENDER ONBOARDING MODAL --- */}
+      <OnboardingModal 
+        isOpen={showOnboarding} 
+        onClose={() => {
+          setShowOnboarding(false);
+          localStorage.setItem('tct_onboarding_completed', 'true');
+        }} 
+      />
     </div>
   );
 }

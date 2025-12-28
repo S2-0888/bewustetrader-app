@@ -11,7 +11,7 @@ export default function WeeklyReviewWidget() {
 
   // --- CONFIGURATIE ---
   // Zet op FALSE voor productie! (Nu TRUE om te testen op niet-zondagen)
-  const DEV_MODE = true; 
+  const DEV_MODE = false; 
 
   useEffect(() => {
     const checkTime = () => {
