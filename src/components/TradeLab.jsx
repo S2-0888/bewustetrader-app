@@ -93,7 +93,12 @@ function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeCont
         onTranscriptionComplete(data.journal_entry);
 
         if (onFeedbackReceived && data.direct_feedback) {
-           onFeedbackReceived(data.direct_feedback);
+           // We sturen nu een object mee met alle shadow data
+           onFeedbackReceived(data.direct_feedback, {
+               score: data.score,
+               emotion: data.emotion_tag,
+               shadow: data.shadow_analysis
+           });
         }
 
         console.log("--- TCT SHADOW MONITOR ---");
@@ -229,7 +234,6 @@ export default function TradeLab() {
   }, []);
 
   // --- AUTOSAVE LOGICA ---
-  // Dit zorgt ervoor dat je werk niet verloren gaat als je per ongeluk weklik
   useEffect(() => {
     // Alleen uitvoeren als we aan het bewerken zijn en er een ID is
     if (!editingTrade || !editingTrade.id) return;
@@ -237,11 +241,7 @@ export default function TradeLab() {
     // Stel een timer in van 2 seconden
     const autoSaveTimer = setTimeout(async () => {
         console.log("Autosaving trade...", editingTrade.id);
-        
-        // Herbereken Net PnL voor de zekerheid
         const net = Number(editingTrade.grossPnl || 0) - Math.abs(Number(editingTrade.commission || 0));
-        
-        // Sla op in Firebase (inclusief feedback, notes, MAE, MFE, etc.)
         await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
             ...editingTrade, pnl: net
         });
@@ -593,9 +593,18 @@ export default function TradeLab() {
                                 // Bewaar de samenvatting in notes
                                 setEditingTrade(prev => ({ ...prev, notes: text }));
                               }}
-                              onFeedbackReceived={(feedback) => {
+                              onFeedbackReceived={(feedback, extraData) => {
+                                  // 1. Toon de feedback in de UI
                                   setTctFeedback(feedback);
-                                  setEditingTrade(prev => ({ ...prev, aiFeedback: feedback }));
+                                  
+                                  // 2. SLA DIRECT OP in de editingTrade state
+                                  setEditingTrade(prev => ({ 
+                                      ...prev, 
+                                      aiFeedback: feedback,
+                                      mindsetScore: extraData.score, 
+                                      emotionTag: extraData.emotion,
+                                      shadowAnalysis: extraData.shadow
+                                  }));
                               }}
                             />
                             

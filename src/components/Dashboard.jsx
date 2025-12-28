@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, onSnapshot, orderBy, updateDoc, doc, addDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { Trophy, Crown, Pulse, CaretRight, Layout, PlusCircle, Bank, Sparkle } from '@phosphor-icons/react';
+import { PlusCircle, Bank, Sparkle, Pulse } from '@phosphor-icons/react';
 import * as W from './DashboardWidgets';
+import WeeklyReviewWidget from './WeeklyReviewWidget'; 
 
-// --- TCT COACH COMPONENT (GEMINI SOFT-AI STYLE) ---
+// --- TCT COACH COMPONENT ---
 const TCTCoach = ({ trades, winrate, adherence }) => {
   const [insight, setInsight] = useState("TCT is aan het analyseren...");
   const [loading, setLoading] = useState(true);
@@ -14,10 +15,7 @@ const TCTCoach = ({ trades, winrate, adherence }) => {
     const fetchTCTInsight = async () => {
       setLoading(true);
       try {
-        // BELANGRIJK: Voeg 'europe-west1' toe als tweede parameter!
-        // De 'undefined' betekent: gebruik de standaard app.
         const functions = getFunctions(undefined, 'europe-west1');
-        
         const getTCTInsight = httpsCallable(functions, 'getTCTInsight');
         const result = await getTCTInsight({
           stats: { winrate, adherence },
@@ -25,7 +23,7 @@ const TCTCoach = ({ trades, winrate, adherence }) => {
         });
         setInsight(result.data.insight);
       } catch (err) {
-        console.error("TCT Error:", err); // Nu zie je de echte fout in je console
+        console.error("TCT Error:", err);
         setInsight("Blijf gefocust op je blueprint. De weg naar meesterschap is een marathon.");
       }
       setLoading(false);
@@ -81,7 +79,7 @@ export default function Dashboard({ setView }) {
   const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
-  const [globalBroadcast, setGlobalBroadcast] = useState(null); // NIEUW: Voor admin berichten
+  const [globalBroadcast, setGlobalBroadcast] = useState(null); 
   const [timeRange, setTimeRange] = useState('ALL');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [vaultVersion, setVaultVersion] = useState(localStorage.getItem('vaultStyle') || 'V1');
@@ -92,12 +90,10 @@ export default function Dashboard({ setView }) {
     const user = auth.currentUser;
     if (!user) return;
 
-    // Luister naar de globale broadcast van de ADMIN
     const unsubBroadcast = onSnapshot(doc(db, "system", "broadcast"), (d) => {
       if (d.exists()) {
         const data = d.data();
         const now = new Date().getTime();
-        // Alleen tonen als het bericht actief is EN nog niet verlopen
         if (data.active && data.expiresAt > now) {
           setGlobalBroadcast(data.message);
         } else {
@@ -149,7 +145,7 @@ export default function Dashboard({ setView }) {
   return (
     <div style={{ background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
       
-      {/* SYSTEEM BERICHT: Helemaal bovenaan, buiten de gepidde container */}
+      {/* SYSTEEM BERICHT */}
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: isMobile ? '10px 15px 0' : '20px 20px 0' }}>
          <W.SystemBroadcast message={globalBroadcast} />
       </div>
@@ -179,10 +175,14 @@ export default function Dashboard({ setView }) {
           </div>
         </div>
 
-        {/* TCT COACH */}
+        {/* 1. WEEKLY REVIEW WIDGET (NIEUW! BOVENAAN!) */}
+        {/* Is subtiel en zacht, verschijnt alleen op zondagochtend */}
+        <WeeklyReviewWidget />
+
+        {/* 2. TCT COACH (Dagelijks inzicht) */}
         <TCTCoach trades={closedTrades} winrate={winrate} adherence={avgDiscipline} />
 
-        {/* PERFORMANCE & FORM GUIDE */}
+        {/* 3. PERFORMANCE & FORM GUIDE */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.7fr 1fr', gap: 15, marginBottom: 25 }}>
             <W.PerformanceWidget winrate={winrate} avgDiscipline={avgDiscipline} trades={closedTrades} isMobile={isMobile} />
             {!isMobile && <W.FormGuideWidget lastTrades={closedTrades.slice(-10)} />}
@@ -242,7 +242,7 @@ export default function Dashboard({ setView }) {
 
                 return (
                   <div key={acc.id} style={{ flex: isMobile ? '0 0 88%' : 'none', scrollSnapAlign: 'center', display: 'flex', flexDirection: 'column', gap: 10, marginRight: isMobile ? '10px' : '0' }}>
-                     <W.AccountCard acc={acc} balance={currentBal} progressPct={progressPct} ddPct={ddPct} money={money} isFunded={acc.stage === 'Funded'} version={isMobile ? 'V3' : vaultVersion} />
+                      <W.AccountCard acc={acc} balance={currentBal} progressPct={progressPct} ddPct={ddPct} money={money} isFunded={acc.stage === 'Funded'} version={isMobile ? 'V3' : vaultVersion} />
                   </div>
                 );
             })}

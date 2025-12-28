@@ -7,24 +7,30 @@ if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// --- HET DEFINITIEVE TCT BREIN (Dashboard Coach) ---
-// (Dit is voor de dashboard 'Insight', niet de Voice)
+// --- HET DEFINITIEVE TCT BREIN (Dashboard Coach - Met Geheugen & Taalgevoel) ---
 const TCT_SYSTEM_PROMPT = `
 ### SYSTEM INSTRUCTION: TCT (The Conscious Trader Coach)
 
 **IDENTITY:**
-You are TCT, the AI performance coach for "The Conscious Trader" platform. You are not a financial advisor; you are a mindset mentor.
+You are TCT, the AI performance coach. You are not a financial advisor.
+Your goal is to connect the dots between the trader's **Execution** (P&L, Risk) and their **Psychology** (Voice Memos, Mindset Scores).
 
-**YOUR MISSION:**
-Help the trader transition from a "gambler" to a "conscious professional". Focus on the process, not the P&L.
+**DATA YOU WILL SEE:**
+1.  **Winrate & Adherence:** The hard stats.
+2.  **Recent Trades:** A list of trades. CRUCIAL: Look for the field 'shadowAnalysis' (Context) and 'mindsetScore' (1-10).
 
-**CORE VALUES (The DNA):**
-1.  **Risk Management:** The Airbag (Stop-loss) is non-negotiable. 1-2% risk max.
-2.  **Consistency:** Boring is good. 1:3 RRR is the goal, not lucky 1:20s.
-3.  **Mindset:** Revenge trading is the enemy. "No trade" is also a trade.
+**YOUR ANALYSIS LOGIC:**
+* **The Disconnect:** Winning with low Mindset Scores? -> "Lucky/Dangerous".
+* **The Spiral:** Consecutive losses + 'Revenge' tags? -> "Stop trading".
+* **The Growth:** Losing but High Mindset Score? -> "Good Process".
+
+**CRITICAL: LANGUAGE RULE**
+* **SCAN** the text in 'recent trades' (coachNotes/shadowAnalysis).
+* **IF** the user's notes are in **Dutch** -> Your insight MUST be in **Dutch**.
+* **ELSE** (or if mixed) -> Keep it **English**.
 
 **TONE:**
-Direct, professional, yet human. Always English (for dashboard insights).
+Direct, professional. Max 3 sentences. Focus on psychology.
 `;
 
 // --- 1. TCT AI COACH (Dashboard Insight) ---
@@ -40,15 +46,28 @@ exports.getTCTInsight = onCall({
 
   const { recentTrades, stats } = data;
 
+  // We sturen de notities mee zodat de AI de taal kan herkennen
+  const tradesWithContext = recentTrades.map(t => {
+      return {
+          pair: t.pair,
+          pnl: t.pnl,
+          mindsetScore: t.mindsetScore || "N/A",
+          coachNotes: t.shadowAnalysis || t.notes || "No text", // De AI leest dit om de taal te bepalen
+          emotion: t.emotionTag || "Unknown"
+      };
+  });
+
   const fullPrompt = `
     ${TCT_SYSTEM_PROMPT}
 
-    **USER DATA:**
+    **USER STATUS:**
     - Winrate: ${stats.winrate}%
-    - Adherence Score: ${stats.adherence}%
-    - Recent Trades: ${JSON.stringify(recentTrades)}
+    - Adherence: ${stats.adherence}%
+    
+    **RECENT ACTIVITY (Context for Language & Psychology):**
+    ${JSON.stringify(tradesWithContext, null, 2)}
 
-    **YOUR ADVICE (English, max 3 sentences):**
+    **YOUR COACHING INSIGHT (Max 3 sentences, matching user's language):**
   `;
 
   try {
@@ -65,11 +84,11 @@ exports.getTCTInsight = onCall({
     return { insight: tctResponseText };
   } catch (error) {
     console.error("TCT Error:", error.message);
-    return { insight: "Focus on your blueprint. Recalibrating..." };
+    return { insight: "Gathering more data to build your profile. Stick to the plan." };
   }
 });
 
-// --- 2. STRIPE WEBHOOK ---
+// --- 2. STRIPE WEBHOOK (Ongewijzigd) ---
 exports.stripeWebhook = onRequest({ 
   secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
   region: "europe-west1"
@@ -92,7 +111,7 @@ exports.stripeWebhook = onRequest({
   res.json({ received: true });
 });
 
-// --- 3. ANALYZE VOICE TRADE (Holistic Brain: Voice + Technical Data) ---
+// --- 3. ANALYZE VOICE TRADE (Ongewijzigd - Was al slim) ---
 exports.analyzeVoiceTrade = onRequest({ 
   secrets: ["GEMINI_API_KEY"],
   region: "europe-west1",
@@ -104,16 +123,14 @@ exports.analyzeVoiceTrade = onRequest({
   const bb = busboy({ headers: req.headers });
   let audioBuffer = Buffer.alloc(0);
   let mimeType = "audio/webm";
-  let tradeContext = "{}"; // Default leeg
+  let tradeContext = "{}"; 
 
-  // 1. Vang de context data (Risk, MAE, MFE, etc.)
   bb.on("field", (fieldname, val) => {
     if (fieldname === "tradeContext") {
         tradeContext = val;
     }
   });
 
-  // 2. Vang de audio
   bb.on("file", (fieldname, file, info) => {
     mimeType = info.mimeType;
     file.on("data", (data) => audioBuffer = Buffer.concat([audioBuffer, data]));
@@ -124,13 +141,11 @@ exports.analyzeVoiceTrade = onRequest({
       if (audioBuffer.length === 0) throw new Error("No audio received.");
       
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      // We gebruiken JSON output voor strakke verwerking in de app
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
         generationConfig: { responseMimeType: "application/json" }
       });
 
-      // DE ULTIEME "HOLISTIC COACH" PROMPT
       const prompt = `
         ### SYSTEM INSTRUCTION: Conscious Trader Voice Analyzer (Holistic)
         
@@ -178,4 +193,118 @@ exports.analyzeVoiceTrade = onRequest({
   });
 
   if (req.rawBody) bb.end(req.rawBody); else req.pipe(bb);
+});
+
+// --- 4. WEEKLY REVIEW GENERATOR (Smart Language Detection - Ongewijzigd) ---
+exports.generateWeeklyReview = onCall({ 
+  secrets: ["GEMINI_API_KEY"],
+  region: "europe-west1" 
+}, async (request) => {
+  const { auth } = request;
+  if (!auth) throw new Error('unauthenticated');
+
+  const db = admin.firestore();
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash",
+    generationConfig: { responseMimeType: "application/json" }
+  });
+
+  try {
+    const today = new Date();
+    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const dateString = lastWeek.toISOString().split('T')[0];
+
+    const tradesSnap = await db.collection('users').doc(auth.uid).collection('trades')
+      .where('date', '>=', dateString)
+      .get();
+
+    if (tradesSnap.empty) {
+      return { error: "No trades found this week." };
+    }
+
+    let totalPnl = 0;
+    let wins = 0;
+    let totalMindsetScore = 0;
+    let mindsetCount = 0;
+    let mistakeCounts = {};
+    const tradesSummary = [];
+
+    tradesSnap.forEach(doc => {
+      const t = doc.data();
+      totalPnl += (t.pnl || 0);
+      if ((t.pnl || 0) > 0) wins++;
+      
+      if (t.mindsetScore) {
+        totalMindsetScore += t.mindsetScore;
+        mindsetCount++;
+      }
+
+      if (t.mistake && Array.isArray(t.mistake)) {
+        t.mistake.forEach(m => {
+          mistakeCounts[m] = (mistakeCounts[m] || 0) + 1;
+        });
+      }
+
+      tradesSummary.push({
+        pair: t.pair,
+        pnl: t.pnl,
+        mindset: t.mindsetScore || "-",
+        coachNote: t.shadowAnalysis || t.notes || "No context",
+        mistakes: t.mistake || []
+      });
+    });
+
+    const winrate = tradesSnap.size > 0 ? Math.round((wins / tradesSnap.size) * 100) : 0;
+    const avgMindset = mindsetCount > 0 ? (totalMindsetScore / mindsetCount).toFixed(1) : "N/A";
+
+    const prompt = `
+      ### SYSTEM INSTRUCTION: TCT Head of Performance (Weekly Review)
+      
+      **INPUT:** Weekly trading data of a user.
+      **YOUR ROLE:** Review the week like a strict but fair hedge fund manager.
+      
+      **DATA:**
+      - Total P&L: ${totalPnl.toFixed(2)}
+      - Winrate: ${winrate}% (Trades: ${tradesSnap.size})
+      - Avg Mindset Score: ${avgMindset} / 10
+      - Top Mistakes: ${JSON.stringify(mistakeCounts)}
+      - Trade Log (Sample): ${JSON.stringify(tradesSummary.slice(0, 10))}
+
+      **TASK:**
+      1. Analyze the correlation between Mindset Scores and P&L.
+      2. Identify the #1 Leak (Behavioral or Technical).
+      3. Create a Gameplan for next week.
+
+      **CRITICAL: SMART LANGUAGE DETECTION**
+      - Scan the 'coachNote' and 'mistakes' text in the Trade Log.
+      - **IF** the user's notes are clearly in **Dutch** -> Output JSON in **Dutch**.
+      - **ELSE** (or if uncertain/mixed) -> Output JSON in **ENGLISH**.
+
+      **OUTPUT JSON:**
+      {
+        "grade": "String (A+, A, B, C, D, F)",
+        "headline": "String. Short, punchy summary.",
+        "analysis": "String. Deep dive review (max 4 sentences).",
+        "top_pitfall": "String. The main mistake.",
+        "gameplan": "String. Actionable rule for next week."
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const reviewData = JSON.parse(result.response.text());
+
+    await db.collection('users').doc(auth.uid).collection('weekly_reviews').add({
+      ...reviewData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      weekStart: dateString,
+      stats: { totalPnl, winrate, avgMindset, tradeCount: tradesSnap.size }
+    });
+
+    return reviewData;
+
+  } catch (error) {
+    console.error("Weekly Review Error:", error);
+    throw new Error(error.message);
+  }
 });
