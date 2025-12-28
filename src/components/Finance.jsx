@@ -119,7 +119,7 @@ export default function Finance() {
 
   const COLORS = ['#5856D6', '#AF52DE', '#30D158', '#FF9F0A', '#FF453A'];
 
-  // --- MOBIELE WEERGAVE (Minimalistisch) ---
+  // --- MOBIELE WEERGAVE ---
   if (isMobile) {
     return (
       <div style={{ padding: '15px', paddingBottom: 100 }}>
@@ -146,8 +146,9 @@ export default function Finance() {
             <form onSubmit={handleAddPayout} style={{ display: 'grid', gap: 15 }}>
               <input style={{ fontSize: '16px', height: '48px' }} className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} />
               <select style={{ fontSize: '16px', height: '48px' }} className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
-                <option value="">Select Account...</option>
-                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}
+                <option value="">Select Funded Account...</option>
+                {/* FILTER: Alleen funded accounts zichtbaar */}
+                {accounts.filter(acc => acc.status === 'Funded').map(acc => <option key={acc.id} value={acc.id}>{acc.firm}</option>)}
               </select>
               <input style={{ fontSize: '16px', height: '48px' }} className="apple-input" type="number" inputMode="decimal" placeholder="Amount" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} />
               <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ background: '#30D158', height: 50, borderRadius: 12 }}>CONFIRM HARVEST</button>
@@ -158,7 +159,7 @@ export default function Finance() {
     );
   }
 
-  // --- DESKTOP WEERGAVE (Volledige code) ---
+  // --- DESKTOP WEERGAVE ---
   return (
     <div style={{ padding: '40px 20px', maxWidth: 1200, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
       
@@ -207,8 +208,9 @@ export default function Finance() {
               <div className="input-group"><label className="input-label">Date</label><input className="apple-input" type="date" value={payoutForm.date} onChange={e => setPayoutForm({...payoutForm, date: e.target.value})} /></div>
               <div className="input-group"><label className="input-label">Source Account</label>
                   <select className="apple-input" value={payoutForm.accountId} onChange={e => setPayoutForm({...payoutForm, accountId: e.target.value})} required>
-                      <option value="">Select account...</option>
-                      {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber} ({acc.size ? acc.size/1000 + 'k' : '?'})</option>)}
+                      <option value="">Select funded account...</option>
+                      {/* FILTER: Alleen funded accounts zichtbaar */}
+                      {accounts.filter(acc => acc.status === 'Funded').map(acc => <option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber} ({acc.size ? acc.size/1000 + 'k' : '?'})</option>)}
                   </select>
               </div>
               <div className="input-group"><label className="input-label">Amount</label><input className="apple-input" type="number" placeholder="0.00" value={payoutForm.amount} onChange={e => setPayoutForm({...payoutForm, amount: e.target.value})} /></div>
@@ -217,7 +219,7 @@ export default function Finance() {
         </div>
       )}
 
-      {/* CHARTS GRID */}
+      {/* CHARTS & HISTORY (REMAINDER OF CODE UNCHANGED) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 20, marginBottom: 30 }}>
         <div className="bento-card" style={{ padding: 30 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: 30 }}><TrendUp size={20} weight="bold" color="#007AFF"/><span style={{ fontSize: 13, fontWeight: 800 }}>YEARLY MOMENTUM</span></div>
@@ -249,10 +251,8 @@ export default function Finance() {
 
       <W.FinancialHarvestWidget payouts={payoutsList} invested={metrics.invested} money={fmt} />
 
-      {/* DUAL HISTORY GRID */}
+      {/* TABLES SECTION UNCHANGED */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 30 }}>
-        
-        {/* PAYOUT REVENUE */}
         <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center', background: 'rgba(48, 209, 88, 0.03)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}><Bank size={20} weight="fill" color="#30D158"/><span style={{ fontSize: 13, fontWeight: 900 }}>PAYOUT REVENUE</span></div>
@@ -282,7 +282,6 @@ export default function Finance() {
           </div>
         </div>
 
-        {/* CAPITAL ALLOCATION */}
         <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}><Receipt size={20} weight="fill" color="#8E8E93"/><span style={{ fontSize: 13, fontWeight: 900 }}>CAPITAL ALLOCATION</span></div>
@@ -311,7 +310,6 @@ export default function Finance() {
             <button disabled={accountPage === accountTotalPages} onClick={() => setAccountPage(accountPage + 1)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CaretRight size={16}/></button>
           </div>
         </div>
-
       </div>
     </div>
   );

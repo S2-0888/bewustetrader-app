@@ -1,12 +1,137 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   Trash, X, Wallet, Gear,
   Smiley, SmileySad, SmileyMeh, 
-  SmileyNervous, Plus, PlusCircle, Blueprint, ArrowSquareOut, CaretDown, Lightning, Scales, Info
+  SmileyNervous, Plus, PlusCircle, Blueprint, ArrowSquareOut, CaretDown, Lightning, Scales, Info,
+  Microphone, StopCircle, Waves, Sparkle 
 } from '@phosphor-icons/react';
 import AdvancedJournalForm from './AdvancedJournalForm';
+
+// --- HELPER COMPONENT: VOICE NOTE INPUT (Advanced Context Version) ---
+function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeContext }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorder = useRef(null);
+  const audioChunks = useRef([]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder.current = new MediaRecorder(stream);
+      audioChunks.current = [];
+      mediaRecorder.current.ondataavailable = (event) => {
+        audioChunks.current.push(event.data);
+      };
+      
+      mediaRecorder.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+        await handleTranscription(audioBlob);
+      };
+
+      mediaRecorder.current.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access denied", err);
+      alert("Microfoon toegang geweigerd.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder.current) {
+        mediaRecorder.current.stop();
+        setIsRecording(false);
+    }
+  };
+
+  const handleTranscription = async (blob) => {
+    setIsTranscribing(true);
+
+    const formData = new FormData();
+    formData.append('audio', blob);
+    
+    // --- COMPLETE CONTEXT INJECTIE ---
+    // We sturen NU ALLES mee voor de perfecte analyse
+    if (tradeContext) {
+        const contextData = {
+            // Identiteit van de trade
+            pair: tradeContext.pair || "Unknown",
+            direction: tradeContext.direction || "Long",
+            strategy: tradeContext.strategy || "Unknown", // NIEUW
+            
+            // Financiële impact
+            risk: tradeContext.risk || 0, // NIEUW (Essentieel voor risk management check)
+            pnl: tradeContext.pnl || 0,
+            commission: tradeContext.commission || 0,
+
+            // Psychologie (wat de user zelf al heeft aangevinkt)
+            mistakes: tradeContext.mistake || [],
+            emotion: tradeContext.emotion || "Neutral",
+            
+            // Technische precisie (De "Röntgenogen")
+            entryPrice: tradeContext.entryPrice,
+            exitPrice: tradeContext.exitPrice, 
+            slPrice: tradeContext.slPrice, 
+            tpPrice: tradeContext.tpPrice, 
+            maePrice: tradeContext.maePrice, // Pijn punt
+            mfePrice: tradeContext.mfePrice  // Gemiste winst
+        };
+        // We maken er tekst van zodat de backend het kan lezen
+        formData.append('tradeContext', JSON.stringify(contextData));
+    }
+    // ---------------------------------
+
+    try {
+      const response = await fetch('https://analyzevoicetrade-zxpdz2eyba-ew.a.run.app', { 
+        method: 'POST', 
+        body: formData 
+      });
+      const data = await response.json();
+
+      if (data.journal_entry) {
+        onTranscriptionComplete(data.journal_entry);
+
+        if (onFeedbackReceived && data.direct_feedback) {
+           onFeedbackReceived(data.direct_feedback);
+        }
+
+        console.log("--- TCT SHADOW MONITOR ---");
+        console.log("Score:", data.score);
+        console.log("Emotion:", data.emotion_tag);
+      }
+
+    } catch (error) {
+      console.error("AI Voice Error:", error);
+      alert("AI Coach kon de audio niet verwerken.");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '15px', background: isRecording ? 'rgba(255, 59, 48, 0.05)' : '#F8F9FB', borderRadius: '16px', border: isRecording ? '1px solid #FF3B30' : '1px solid #E5E5EA', marginBottom: '15px', transition: '0.3s' }}>
+      {!isRecording ? (
+        <button type="button" onClick={startRecording} style={{ background: '#007AFF', color: 'white', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0, 122, 255, 0.2)' }}>
+          <Microphone size={20} weight="fill" />
+        </button>
+      ) : (
+        <button type="button" onClick={stopRecording} style={{ background: '#FF3B30', color: 'white', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse-slow 1.5s infinite' }}>
+          <StopCircle size={20} weight="fill" />
+        </button>
+      )}
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, display: 'block', color: isRecording ? '#FF3B30' : '#1C1C1E' }}>
+          {isRecording ? "Listening to your thoughts..." : isTranscribing ? "TCT Coach is analyzing data & voice..." : "Record Voice Reflection"}
+        </span>
+        <span style={{ fontSize: 11, color: '#86868B' }}>
+          {isRecording ? "Stop to finalize note" : "Tap to speak. Vent your emotions."}
+        </span>
+      </div>
+      {isRecording && <Waves size={24} color="#FF3B30" weight="bold" />}
+    </div>
+  );
+}
 
 const FieldInfo = ({ title, text }) => {
     const [visible, setVisible] = useState(false);
@@ -45,6 +170,7 @@ export default function TradeLab() {
   const [showPriceFields, setShowPriceFields] = useState(true); 
   const [editingTrade, setEditingTrade] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [tctFeedback, setTctFeedback] = useState(''); 
 
   const [closingTrade, setClosingTrade] = useState(null); 
   const [closeExitPrice, setCloseExitPrice] = useState(''); 
@@ -86,14 +212,11 @@ export default function TradeLab() {
     if (!user) return;
     onSnapshot(query(collection(db, "users", user.uid, "trades")), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      // FIXED SORTING: Open trades first, then Newest Date on top
       const sortedList = list.sort((a, b) => {
         if (a.status === 'OPEN' && b.status !== 'OPEN') return -1;
         if (a.status !== 'OPEN' && b.status === 'OPEN') return 1;
         return new Date(b.date) - new Date(a.date);
       });
-      
       setTrades(sortedList);
     });
     onSnapshot(query(collection(db, "users", user.uid, "accounts")), (snap) => {
@@ -104,6 +227,30 @@ export default function TradeLab() {
     });
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // --- AUTOSAVE LOGICA ---
+  // Dit zorgt ervoor dat je werk niet verloren gaat als je per ongeluk weklik
+  useEffect(() => {
+    // Alleen uitvoeren als we aan het bewerken zijn en er een ID is
+    if (!editingTrade || !editingTrade.id) return;
+
+    // Stel een timer in van 2 seconden
+    const autoSaveTimer = setTimeout(async () => {
+        console.log("Autosaving trade...", editingTrade.id);
+        
+        // Herbereken Net PnL voor de zekerheid
+        const net = Number(editingTrade.grossPnl || 0) - Math.abs(Number(editingTrade.commission || 0));
+        
+        // Sla op in Firebase (inclusief feedback, notes, MAE, MFE, etc.)
+        await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
+            ...editingTrade, pnl: net
+        });
+    }, 2000); // 2000ms = 2 seconden wachten na laatste wijziging
+
+    // Als de gebruiker binnen 2 sec weer typt, annuleer de vorige timer (debounce)
+    return () => clearTimeout(autoSaveTimer);
+  }, [editingTrade]); 
+  // -----------------------
 
   const handleSimpleOpen = async (e) => {
     e.preventDefault();
@@ -144,6 +291,15 @@ export default function TradeLab() {
         ...editingTrade, pnl: net
     });
     setEditingTrade(null);
+    setTctFeedback(''); 
+  };
+
+  const openReviewModal = (trade) => {
+    setTctFeedback(trade.aiFeedback || ''); 
+    setEditingTrade({ 
+        ...trade, 
+        actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) 
+    });
   };
 
   return (
@@ -247,7 +403,6 @@ export default function TradeLab() {
         />
       )}
 
-      {/* TABLE / CARDS SECTION */}
       <div style={{ marginTop: 30 }}>
         {isMobile ? (
           <div style={{ display: 'grid', gap: '15px' }}>
@@ -255,7 +410,7 @@ export default function TradeLab() {
               <div 
                 key={trade.id} 
                 className="bento-card" 
-                onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })}
+                onClick={() => openReviewModal(trade)}
                 style={{ padding: '20px', borderLeft: `4px solid ${trade.status === 'OPEN' ? '#007AFF' : '#86868B'}` }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -266,27 +421,16 @@ export default function TradeLab() {
                   </div>
                   <span style={{ fontSize: 11, color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</span>
                 </div>
-
                 <div style={{ fontSize: 13, color: '#1D1D1F', marginBottom: 15 }}>
                   <span style={{ color: '#86868B' }}>Account:</span> <span style={{ fontWeight: 700 }}>{trade.accountName}</span>
-                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 4, fontWeight: 600 }}>
-                    ID: {trade.accountNumber || 'Unknown'}
-                  </div>
                 </div>
-
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontWeight: 900, fontSize: 18, color: trade.status === 'OPEN' ? '#007AFF' : (trade.pnl >= 0 ? '#30D158' : '#FF453A') }}>
                     {trade.status === 'OPEN' ? 'OPEN' : `$${trade.pnl || 0}`}
                   </div>
-                  
                   <div style={{ display: 'flex', gap: 10 }}>
                     {trade.status === 'OPEN' && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} 
-                        style={{ background: '#FF3B30', color: 'white', border: 'none', borderRadius: '10px', padding: '12px 20px', fontSize: '12px', fontWeight: 800, boxShadow: '0 4px 12px rgba(255, 59, 48, 0.2)' }}
-                      >
-                        CLOSE POSITION
-                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: '#FF3B30', color: 'white', border: 'none', borderRadius: '10px', padding: '12px 20px', fontSize: '12px', fontWeight: 800 }}>CLOSE</button>
                     )}
                     <button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#FF3B30', padding: 10, opacity: 0.4}}><Trash size={20}/></button>
                   </div>
@@ -297,27 +441,15 @@ export default function TradeLab() {
         ) : (
           <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
               <table className="apple-table">
-                  <thead><tr><th>Datum</th><th>Ticker</th><th>Account</th><th>Status</th><th>Resultat</th><th></th></tr></thead>
+                  <thead><tr><th>Datum</th><th>Ticker</th><th>Account</th><th>Status</th><th>Resultaat</th><th></th></tr></thead>
                   <tbody>
                       {trades.map(trade => (
-                          <tr key={trade.id} onClick={() => setEditingTrade({ ...trade, actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) })} className="hover-row" style={{ cursor:'pointer' }}>
+                          <tr key={trade.id} onClick={() => openReviewModal(trade)} className="hover-row" style={{ cursor:'pointer' }}>
                               <td style={{ fontSize: '11px', color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</td>
-                              <td style={{ fontWeight:700 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      {trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}
-                                      {trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span>
-                                  </div>
-                              </td>
-                              <td>
-                                <div style={{ fontWeight: 600 }}>{trade.accountName}</div>
-                                <div style={{ fontSize: 10, color: '#86868B' }}>{trade.accountNumber || 'ID N/A'}</div>
-                              </td>
+                              <td style={{ fontWeight:700 }}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}{trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span></div></td>
+                              <td><div style={{ fontWeight: 600 }}>{trade.accountName}</div><div style={{ fontSize: 10, color: '#86868B' }}>{trade.accountNumber || 'ID N/A'}</div></td>
                               <td>{trade.status === 'OPEN' ? <span className="badge-blue">OPEN</span> : <span style={{color:'#86868B'}}>CLOSED</span>}</td>
-                              <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>
-                                  {trade.status === 'OPEN' ? (
-                                      <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: 'rgba(0, 122, 255, 0.08)', color: '#007AFF', border: '1px solid rgba(0, 122, 255, 0.15)', borderRadius: '8px', padding: '6px 16px', fontSize: '11px', fontWeight: 800 }}>CLOSE</button>
-                                  ) : `$${trade.pnl || 0}`}
-                              </td>
+                              <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>{trade.status === 'OPEN' ? <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: 'rgba(0, 122, 255, 0.08)', color: '#007AFF', border: '1px solid rgba(0, 122, 255, 0.15)', borderRadius: '8px', padding: '6px 16px', fontSize: '11px', fontWeight: 800 }}>CLOSE</button> : `$${trade.pnl || 0}`}</td>
                               <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc', cursor: 'pointer', opacity: 0.6}}><Trash size={16}/></button></td>
                           </tr>
                       ))}
@@ -327,7 +459,6 @@ export default function TradeLab() {
         )}
       </div>
 
-      {/* CLOSE MODAL */}
       {closingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, padding: 20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 380, padding: 30 }}>
@@ -339,28 +470,18 @@ export default function TradeLab() {
                     </div>
                 </div>
                 <form onSubmit={executeCloseTrade} style={{ display: 'grid', gap: 15 }}>
-                    <div className="input-group">
-                        <label className="input-label">Exit Price</label>
-                        <input style={{fontSize:16, height:50}} className="apple-input" type="number" step="any" autoFocus onFocus={handleFocus} value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} required />
-                    </div>
+                    <div className="input-group"><label className="input-label">Exit Price</label><input className="apple-input" type="number" step="any" autoFocus onFocus={handleFocus} value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} required /></div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                        <div className="input-group">
-                            <label className="input-label">Gross P&L</label>
-                            <input style={{fontSize:16, height:50}} className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeGrossPnl} onChange={e => { setCloseGrossPnl(e.target.value); updateNetPnl(e.target.value, closeCommission); }} required />
-                        </div>
-                        <div className="input-group">
-                            <label className="input-label">Commission / Swap</label>
-                            <input style={{fontSize:16, height:50}} className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeCommission} onChange={e => { setCloseCommission(e.target.value); updateNetPnl(closeGrossPnl, e.target.value); }} />
-                        </div>
+                        <div className="input-group"><label className="input-label">Gross P&L</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeGrossPnl} onChange={e => { setCloseGrossPnl(e.target.value); updateNetPnl(e.target.value, closeCommission); }} required /></div>
+                        <div className="input-group"><label className="input-label">Commission</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeCommission} onChange={e => { setCloseCommission(e.target.value); updateNetPnl(closeGrossPnl, e.target.value); }} /></div>
                     </div>
-                    <button type="submit" className="btn-primary" style={{ height: 55, borderRadius: 16, marginTop: 10 }}>CONFIRM & POST</button>
-                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', color:'#86868B', fontSize: 12 }}>Cancel</button>
+                    <button type="submit" className="btn-primary" style={{ height: 50, borderRadius: 16 }}>CONFIRM & POST</button>
+                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', color:'#86868B' }}>Cancel</button>
                 </form>
             </div>
         </div>
       )}
 
-      {/* REVIEW MODAL */}
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: 20 }}>
             <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
@@ -371,6 +492,7 @@ export default function TradeLab() {
                     </div>
                     <button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none', cursor:'pointer' }}><X size={24}/></button>
                 </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 15, marginBottom: 25 }}>
                     <div style={{ background: '#F2F2F7', padding: '15px', borderRadius: '14px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, fontWeight: 800, color: '#86868B', marginBottom: 4 }}>TOTAL COMMISSION</div>
@@ -381,33 +503,40 @@ export default function TradeLab() {
                         <div style={{ fontSize: 18, fontWeight: 900 }}>${Number(editingTrade.pnl || 0).toLocaleString('nl-NL')}</div>
                     </div>
                 </div>
+                
                 <form onSubmit={handleUpdateTrade}>
+                    {/* TCT FEEDBACK BLOK: BOVEN DE GRID */}
+                    {tctFeedback && (
+                        <div style={{ 
+                            marginBottom: '25px', 
+                            padding: '15px', 
+                            background: 'linear-gradient(135deg, #F0F9FF 0%, #E6F4FE 100%)', 
+                            borderLeft: '4px solid #007AFF', 
+                            borderRadius: '12px',
+                            color: '#0c4a6e',
+                            boxShadow: '0 4px 12px rgba(0, 122, 255, 0.08)',
+                            animation: 'fadeIn 0.5s ease-out'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                <Sparkle size={18} weight="fill" color="#007AFF" />
+                                <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>TCT Coach Feedback</span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.5', fontStyle: 'italic', fontWeight: 500 }}>
+                                "{tctFeedback}"
+                            </p>
+                            <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+                        </div>
+                    )}
+
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: isMobile ? 20 : 40 }}>
+                        {/* LINKERKOLOM (Data) */}
                         <div>
                             <div className="label-xs" style={{color:'#007AFF', marginBottom: 15 }}>PRECISION & EXECUTION</div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15, padding: '15px', background: 'rgba(0, 122, 255, 0.05)', borderRadius: '14px' }}>
-                                <div className="input-group">
-                                    <label className="input-label">Gross P&L</label>
-                                    <input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.grossPnl ?? ''} onChange={e => setEditingTrade({...editingTrade, grossPnl: e.target.value})} />
-                                </div>
-                                <div className="input-group">
-                                    <label className="input-label">Commission / Swap</label>
-                                    <input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.commission ?? ''} onChange={e => setEditingTrade({...editingTrade, commission: e.target.value})} />
-                                </div>
+                                <div className="input-group"><label className="input-label">Gross P&L</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.grossPnl ?? ''} onChange={e => setEditingTrade({...editingTrade, grossPnl: e.target.value})} /></div>
+                                <div className="input-group"><label className="input-label">Commission</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.commission ?? ''} onChange={e => setEditingTrade({...editingTrade, commission: e.target.value})} /></div>
                             </div>
-                            <div className="input-group" style={{ marginBottom: 15 }}>
-                                <label className="input-label">Trade Date</label>
-                                <input type="date" className="apple-input" value={editingTrade.date || ''} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} />
-                            </div>
-                            <div className="input-group" style={{ marginBottom: 15 }}>
-                                <label className="input-label">Trading Account</label>
-                                <select className="apple-input" value={editingTrade.accountId || ''} onChange={e => {
-                                    const acc = accounts.find(a => a.id === e.target.value);
-                                    setEditingTrade({...editingTrade, accountId: e.target.value, accountName: acc ? acc.firm : editingTrade.accountName});
-                                }}>
-                                    {accounts.filter(a => a.status === 'Active').map(acc => (<option key={acc.id} value={acc.id}>{acc.firm} — {acc.accountNumber}</option>))}
-                                </select>
-                            </div>
+                            <div className="input-group" style={{ marginBottom: 15 }}><label className="input-label">Trade Date</label><input type="date" className="apple-input" value={editingTrade.date || ''} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} /></div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:15 }}>
                                 <div className="input-group"><label className="input-label">Entry</label><input onFocus={handleFocus} className="apple-input" type="number" step="any" value={editingTrade.entryPrice || ''} onChange={e => setEditingTrade({...editingTrade, entryPrice: e.target.value})} /></div>
                                 <div className="input-group"><label className="input-label">SL</label><input onFocus={handleFocus} className="apple-input" type="number" step="any" value={editingTrade.slPrice || ''} onChange={e => setEditingTrade({...editingTrade, slPrice: e.target.value})} /></div>
@@ -426,7 +555,6 @@ export default function TradeLab() {
                                                 exits[idx].price = e.target.value;
                                                 setEditingTrade({...editingTrade, actualExits: exits});
                                             }} />
-                                            {idx > 0 && <button type="button" onClick={() => setEditingTrade({...editingTrade, actualExits: editingTrade.actualExits.filter((_, i) => i !== idx)})} style={{border:'none', background:'none', color:'#FF3B30'}}><Trash size={16}/></button>}
                                         </div>
                                     ))}
                                 </div>
@@ -436,8 +564,12 @@ export default function TradeLab() {
                                 <div className="input-group"><label className="input-label">MFE Price <FieldInfo title="MFE" text="Best price reached while in trade."/></label><input onFocus={handleFocus} className="apple-input" type="number" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} /></div>
                             </div>
                         </div>
+
+                        {/* RECHTERKOLOM (Behavior & AI) */}
                         <div>
                             <div className="label-xs" style={{color:'#FF9F0A', marginBottom: 15 }}>BEHAVIORAL REVIEW</div>
+                            
+                            {/* TAGS (Snel invoeren) */}
                             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:20 }}>
                                 {(config.mistakes || []).map(m => (
                                     <button key={m} type="button" onClick={() => {
@@ -446,12 +578,46 @@ export default function TradeLab() {
                                     }} style={{ border: (editingTrade.mistake || []).includes(m) ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: (editingTrade.mistake || []).includes(m) ? 'rgba(255, 59, 48, 0.1)' : 'white', padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{m}</button>
                                 ))}
                             </div>
+
+                            {/* EMOTIES (Snel invoeren) */}
                             <div className="input-group" style={{ marginBottom: 20 }}><label className="input-label">Emotion</label>
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>
                                     {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, textAlign:'center', cursor:'pointer' }}>{em.icon}</div>)}
                                 </div>
                             </div>
-                            <textarea className="apple-input" rows={3} value={editingTrade.notes || ''} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Notes..." />
+
+                            {/* VOICE INPUT (Boven de notes) - GEEFT NU TRADECONTEXT MEE */}
+                            <VoiceNoteInput 
+                              tradeContext={editingTrade} 
+                              onTranscriptionComplete={(text) => {
+                                // Bewaar de samenvatting in notes
+                                setEditingTrade(prev => ({ ...prev, notes: text }));
+                              }}
+                              onFeedbackReceived={(feedback) => {
+                                  setTctFeedback(feedback);
+                                  setEditingTrade(prev => ({ ...prev, aiFeedback: feedback }));
+                              }}
+                            />
+                            
+                            {/* NOTES (Resultaat van de voice) */}
+                            <div className="input-group">
+                                <label className="input-label">
+                                    {tctFeedback ? "AI Journal Summary (Locked)" : "Notes"}
+                                </label>
+                                <textarea 
+                                    className="apple-input" 
+                                    rows={3} 
+                                    value={editingTrade.notes || ''} 
+                                    onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} 
+                                    placeholder="Notes or voice summary..." 
+                                    readOnly={!!tctFeedback}
+                                    style={{ 
+                                        background: tctFeedback ? '#F5F5F7' : 'white',
+                                        color: tctFeedback ? '#1D1D1F' : 'inherit',
+                                        cursor: tctFeedback ? 'not-allowed' : 'text'
+                                    }}
+                                />
+                            </div>
                         </div>
                     </div>
                     <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:30, height: 50, fontWeight: 800 }}>FINALIZE REVIEW</button>

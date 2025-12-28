@@ -11,30 +11,31 @@ const CoachingInfo = ({ title, text }) => {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
-  const handleMouseEnter = (e) => {
+  const handleInteraction = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setPos({ x: rect.left + rect.width / 2, y: rect.top });
-    setVisible(true);
+    setVisible(!visible);
   };
 
   return (
     <>
       <div 
         style={{ display: 'inline-flex', alignItems: 'center', marginLeft: '6px', cursor: 'help' }}
-        onMouseEnter={handleMouseEnter}
+        onMouseEnter={handleInteraction}
         onMouseLeave={() => setVisible(false)}
+        onClick={handleInteraction}
       >
-        <Info size={14} weight="bold" style={{ color: visible ? '#007AFF' : '#8E8E93', opacity: 0.8 }} />
+        <Info size={14} weight="bold" style={{ color: visible ? '#4285F4' : '#8E8E93', opacity: 0.8 }} />
       </div>
 
       {visible && createPortal(
         <div style={{ 
           position: 'fixed', top: pos.y - 10, left: pos.x, transform: 'translate(-50%, -100%)',
-          width: '240px', background: '#1C1C1E', color: 'white', padding: '12px', borderRadius: '12px', 
+          width: '240px', background: 'rgba(28, 28, 30, 0.95)', color: 'white', padding: '12px', borderRadius: '12px', 
           boxShadow: '0 30px 60px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', 
-          zIndex: 10000000, pointerEvents: 'none'
+          zIndex: 10000000, pointerEvents: 'none', backdropFilter: 'blur(10px)'
         }}>
-          <p style={{ fontSize: '10px', fontWeight: 900, color: '#0A84FF', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>{title}</p>
+          <p style={{ fontSize: '10px', fontWeight: 900, color: '#4285F4', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>{title}</p>
           <p style={{ fontSize: '11px', color: '#FFFFFF', lineHeight: '1.4', margin: 0, fontWeight: 400 }}>{text}</p>
         </div>,
         document.body 
@@ -43,27 +44,34 @@ const CoachingInfo = ({ title, text }) => {
   );
 };
 
-// --- WIDGET 0: SYSTEM BROADCAST ---
+// --- WIDGET 0: SYSTEM BROADCAST (GEMINI SOFT-STYLE) ---
 export const SystemBroadcast = ({ message }) => {
-  if (!message) return null;
+  if (!message || message.trim() === "") return null;
+
   return (
     <div style={{ 
-      marginBottom: 25, background: 'rgba(255, 59, 48, 0.05)', borderRadius: '12px', 
-      padding: '12px 20px', border: '1px solid rgba(255, 59, 48, 0.2)',
-      display: 'flex', alignItems: 'center', gap: 15, position: 'relative'
+      marginBottom: '20px', 
+      background: 'rgba(255, 255, 255, 0.8)', 
+      borderRadius: '20px', 
+      padding: '14px 24px', 
+      border: '1px solid rgba(255, 59, 48, 0.15)',
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: 15, 
+      position: 'relative',
+      backdropFilter: 'blur(10px)',
+      boxShadow: '0 8px 25px rgba(0, 0, 0, 0.02)',
+      overflow: 'hidden'
     }}>
-      <div style={{ background: '#FF3B30', color: 'white', fontSize: '9px', fontWeight: 900, padding: '4px 10px', borderRadius: '4px', letterSpacing: '1.5px' }}>
-        SYSTEM BROADCAST
-      </div>
-      <div style={{ color: '#FF3B30', fontSize: '12px', fontWeight: 800, fontFamily: 'monospace', flex: 1 }}>
-        {message}
-      </div>
-      <Warning size={18} color="#FF3B30" weight="fill" />
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '3px', background: 'linear-gradient(90deg, #FF3B30 0%, #FF9F0A 100%)', opacity: 0.5 }} />
+      <div style={{ background: 'rgba(255, 59, 48, 0.1)', color: '#FF3B30', fontSize: '9px', fontWeight: 900, padding: '4px 10px', borderRadius: '8px', letterSpacing: '1px', textTransform: 'uppercase' }}>Alert</div>
+      <div style={{ color: '#3C4043', fontSize: '13px', fontWeight: 600, flex: 1, lineHeight: '1.4' }}>{message}</div>
+      <Warning size={20} color="#FF3B30" weight="bold" />
     </div>
   );
 };
 
-// --- WIDGET 1: PERFORMANCE (AUTO-FIT & ALIGNMENT FIX) ---
+// --- WIDGET 1: PERFORMANCE ---
 export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [], isMobile }) => {
   const totalR = trades.reduce((sum, t) => sum + (Number(t.pnl) / (Number(t.risk) || 1)), 0);
   const grossProfit = trades.reduce((sum, t) => t.pnl > 0 ? sum + Number(t.pnl) : sum, 0);
@@ -88,20 +96,12 @@ export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [],
           {totalR > 0 ? '+' : ''}{totalR.toFixed(1)}<span style={{ fontSize: '20px', opacity: 0.3, marginLeft: 4 }}>R</span>
         </div>
       </div>
-
       {!isMobile && <div style={{ width: '1px', height: '40px', background: 'rgba(255,255,255,0.15)' }} />}
-
       <div style={{ textAlign: 'center' }}>
-        <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>
-          ADHERENCE <CoachingInfo title="DISCIPLINE" text="Rules adherence level." />
-        </div>
-        <div style={{ fontSize: '24px', fontWeight: 900, color: avgDiscipline >= 80 ? '#30D158' : '#FF9F0A', lineHeight: 1 }}>
-          {Number(avgDiscipline || 0).toFixed(0)}%
-        </div>
+        <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>ADHERENCE</div>
+        <div style={{ fontSize: '24px', fontWeight: 900, color: avgDiscipline >= 80 ? '#30D158' : '#FF9F0A', lineHeight: 1 }}>{Number(avgDiscipline || 0).toFixed(0)}%</div>
       </div>
-
       {!isMobile && <div style={{ width: '1px', height: '40px', background: 'rgba(255,255,255,0.15)' }} />}
-
       <div style={{ display: 'flex', gap: isMobile ? 40 : 30 }}>
         <div style={{ textAlign: 'center' }}>
             <div style={{ color: '#8E8E93', fontSize: '9px', fontWeight: 800, marginBottom: 4 }}>PROFIT FACTOR</div>
@@ -118,62 +118,27 @@ export const PerformanceWidget = ({ winrate = 0, avgDiscipline = 0, trades = [],
 
 // --- WIDGET 2: FORM GUIDE ---
 export const FormGuideWidget = ({ lastTrades = [], isMobile }) => {
-  // We gebruiken de lijst exact zoals hij binnenkomt (gebaseerd op sluitingstijd)
-  const displayTrades = lastTrades;
-
   return (
-    <div className="bento-card" style={{ 
-      padding: 20, 
-      background: '#FFFFFF', 
-      border: '1px solid #F2F2F7', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      justifyContent: 'center',
-      minHeight: isMobile ? '120px' : 'auto' 
-    }}>
+    <div className="bento-card" style={{ padding: 20, background: '#FFFFFF', border: '1px solid #F2F2F7', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: isMobile ? '120px' : 'auto' }}>
       <div className="label-xs" style={{ marginBottom: 15, color: '#000', fontWeight: 900, display:'flex', alignItems:'center' }}>
         RECENT FORM <CoachingInfo title="MOMENTUM" text="Your last closed trades in order of completion." />
       </div>
-      <div style={{ 
-        display: 'flex', 
-        gap: isMobile ? 10 : 8, 
-        flexWrap: 'wrap',
-        justifyContent: 'flex-start' 
-      }}>
-          {displayTrades.map((t, idx) => {
+      <div style={{ display: 'flex', gap: isMobile ? 10 : 8, flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+          {lastTrades.map((t, idx) => {
               const pnl = Number(t.pnl) || 0;
               const label = pnl > 0 ? 'W' : (pnl < 0 ? 'L' : 'D');
               const color = pnl > 0 ? '#30D158' : (pnl < 0 ? '#FF3B30' : '#8E8E93');
-              
               const size = isMobile ? 36 : 32;
-
               return (
-                <div 
-                  key={idx} 
-                  style={{ 
-                    width: size, 
-                    height: size, 
-                    borderRadius: '10px', 
-                    background: color, 
-                    color: 'white', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    fontSize: isMobile ? '14px' : '12px', 
-                    fontWeight: 900,
-                    // Subtiele indicator voor de allerlaatste trade (meestal de eerste in de lijst)
-                    border: idx === 0 ? '2px solid rgba(0,0,0,0.1)' : 'none',
-                    boxShadow: idx === 0 ? '0 2px 8px rgba(0,0,0,0.05)' : 'none'
-                  }}
-                >
-                  {label}
-                </div>
+                <div key={idx} style={{ width: size, height: size, borderRadius: '10px', background: color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isMobile ? '14px' : '12px', fontWeight: 900, border: idx === 0 ? '2px solid rgba(0,0,0,0.1)' : 'none', boxShadow: idx === 0 ? '0 2px 8px rgba(0,0,0,0.05)' : 'none' }}>{label}</div>
               );
           })}
       </div>
     </div>
   );
 };
+
+// ... (Rest van de widgets: Expectancy, AccountCard, Blueprint, Harvest blijven gelijk zoals je ze had)
 
 // --- WIDGET 4: EXPECTANCY ---
 export const ExpectancyWidget = ({ data = [], money }) => {

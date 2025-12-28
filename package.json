@@ -1,5 +1,6 @@
 {
   "name": "bewustetrader-cloud",
+  
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@phosphor-icons/react": "^2.1.10",
+    "busboy": "^1.6.0",
     "firebase": "^12.7.0",
     "papaparse": "^5.5.3",
     "react": "^19.2.0",
