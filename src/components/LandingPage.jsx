@@ -1,80 +1,171 @@
-import React from 'react';
-import { ArrowRight, Brain, ChartLineUp, Briefcase, Target, Microphone } from '@phosphor-icons/react';
+import React, { useEffect, useState } from 'react';
+import { 
+  Rocket, ShieldCheck, Brain, ChartBar, 
+  ArrowRight, Crown, Warehouse, Fingerprint, 
+  CaretDown, Sparkle
+} from '@phosphor-icons/react';
 
-export default function LandingPage({ onLoginClick }) {
+export default function LandingPage({ onEnter }) {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
-    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', color: '#1D1D1F', background: '#F5F5F7', minHeight: '100vh' }}>
+    <div style={{ 
+      background: '#FFFFFF', 
+      color: '#1D1D1F', 
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+      overflowX: 'hidden'
+    }}>
       
-      {/* NAV */}
-      <nav style={{ padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ fontWeight: 900, fontSize: 24, letterSpacing: '-1px' }}>DBT Cloud.</div>
-        <button onClick={onLoginClick} style={{ background: '#007AFF', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 20, fontWeight: 600, cursor: 'pointer' }}>Login</button>
+      {/* NAVIGATION */}
+      <nav style={{
+        position: 'fixed', top: 0, width: '100%', zIndex: 1000,
+        background: scrolled ? 'rgba(255,255,255,0.8)' : 'transparent',
+        backdropFilter: scrolled ? 'blur(20px)' : 'none',
+        transition: 'all 0.3s ease',
+        borderBottom: scrolled ? '1px solid rgba(0,0,0,0.05)' : 'none'
+      }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: '#1D1D1F', color: 'white', padding: '8px', borderRadius: '10px', fontWeight: 900, fontSize: '14px' }}>TCT</div>
+            <span style={{ fontWeight: 800, letterSpacing: '-0.5px' }}>PROPFOLIO</span>
+          </div>
+          <button 
+            onClick={onEnter}
+            style={{ 
+              background: '#1D1D1F', color: 'white', border: 'none', padding: '10px 20px', 
+              borderRadius: '12px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' 
+            }}
+          >
+            Founder Login
+          </button>
+        </div>
       </nav>
 
-      {/* HERO */}
-      <header style={{ textAlign: 'center', padding: '100px 20px', maxWidth: 800, margin: '0 auto' }}>
-        <div style={{ display: 'inline-block', padding: '6px 12px', background: 'rgba(175, 82, 222, 0.1)', color: '#AF52DE', borderRadius: 20, fontSize: 12, fontWeight: 800, marginBottom: 20 }}>THE GROWTH ENGINE</div>
-        <h1 style={{ fontSize: '56px', fontWeight: 900, lineHeight: 1.1, marginBottom: 24, letterSpacing: '-2px' }}>
-          Van Dagelijkse Executie <br/> <span style={{ color: '#86868B' }}>Naar Levensvisie.</span>
+      {/* HERO SECTION */}
+      <section style={{ 
+        padding: '160px 20px 100px 20px', textAlign: 'center', maxWidth: 900, margin: '0 auto',
+        minHeight: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'center'
+      }}>
+        <div style={{ 
+          display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(0,122,255,0.05)', 
+          padding: '6px 16px', borderRadius: '30px', color: '#007AFF', fontSize: '12px', fontWeight: 800, marginBottom: 30,
+          margin: '0 auto 30px auto'
+        }}>
+          <Sparkle weight="fill" size={14} /> THE WORLD'S FIRST PROP-ERP
+        </div>
+        
+        <h1 style={{ 
+          fontSize: window.innerWidth < 768 ? '42px' : '72px', 
+          fontWeight: 900, letterSpacing: '-3px', lineHeight: 1, margin: '0 0 25px 0' 
+        }}>
+          Don’t just trade.<br />
+          <span style={{ color: '#86868B' }}>Run the business.</span>
         </h1>
-        <p style={{ fontSize: 20, color: '#48484A', lineHeight: 1.6, marginBottom: 40 }}>
-          Traden is eenzaam. De chaos van de markt laat je je doelen vergeten. <br/>
-          Dit is geen logboek. Dit is je externe geweten.
+        
+        <p style={{ 
+          fontSize: '20px', color: '#86868B', lineHeight: 1.5, maxWidth: 650, margin: '0 auto 40px auto', fontWeight: 500 
+        }}>
+          Manage your capital inventory, automate your discipline, and scale your payouts with TCT AI. Designed for high-performance traders.
         </p>
-        <button onClick={onLoginClick} style={{ background: '#1D1D1F', color: 'white', border: 'none', padding: '16px 40px', borderRadius: 30, fontSize: 16, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.15)' }}>
-          Start Beta Access <ArrowRight weight="bold" />
+
+        <div style={{ display: 'flex', gap: 15, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button 
+            onClick={onEnter}
+            style={{ 
+              background: '#007AFF', color: 'white', border: 'none', padding: '18px 36px', 
+              borderRadius: '16px', fontWeight: 800, fontSize: '17px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 10px 30px rgba(0,122,255,0.3)'
+            }}
+          >
+            Get Founder Access <ArrowRight weight="bold" />
+          </button>
+        </div>
+      </section>
+
+      {/* MODULES SECTION - THE ERP LOGIC */}
+      <section style={{ background: '#F5F5F7', padding: '100px 20px' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: 60 }}>
+            <h2 style={{ fontSize: '40px', fontWeight: 900, letterSpacing: '-1.5px' }}>Enterprise Architecture</h2>
+            <p style={{ color: '#86868B', fontSize: '18px' }}>Moving beyond simple journaling into systematic inventory management.</p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr 1fr', gap: 25 }}>
+            
+            <ModuleCard 
+              icon={<Warehouse size={32} color="#007AFF" weight="duotone" />}
+              title="The Account Warehouse"
+              desc="Treat accounts as inventory. Track the full lifecycle from Purchased → Challenge → Funded → Payout Phase."
+            />
+            
+            <ModuleCard 
+              icon={<Brain size={32} color="#AF52DE" weight="duotone" />}
+              title="The Performance Lab"
+              desc="Conscious data-entry only. We don't believe in lazy imports. Administration is your greatest competitive edge."
+            />
+            
+            <ModuleCard 
+              icon={<ShieldCheck size={32} color="#30D158" weight="duotone" />}
+              title="TCT: AI Co-Pilot"
+              desc="A behavioral AI that monitors your emotions and risk. TCT intervenes when your psychology deviates from the plan."
+            />
+
+          </div>
+        </div>
+      </section>
+
+      {/* PHILOSOPHY SECTION */}
+      <section style={{ padding: '100px 20px', textAlign: 'center' }}>
+        <div style={{ maxWidth: 700, margin: '0 auto' }}>
+          <Crown size={48} weight="fill" color="#FFD60A" style={{ marginBottom: 20 }} />
+          <h2 style={{ fontSize: '36px', fontWeight: 900, marginBottom: 20 }}>The Effort Philosophy</h2>
+          <p style={{ fontSize: '20px', lineHeight: 1.6, color: '#1D1D1F', fontWeight: 500 }}>
+            "Traden op hoog niveau met een rommelige Excel-sheet is als een miljoenenbedrijf runnen op een kladblok. Propfolio dwingt tot bewustzijn. Winst is een resultaat van je proces, niet van geluk."
+          </p>
+          <div style={{ marginTop: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 15 }}>
+            <div style={{ width: 40, height: 1, background: '#E5E5EA' }} />
+            <span style={{ fontWeight: 800, fontSize: '14px', letterSpacing: '1px' }}>FOUNDERS EDITION</span>
+            <div style={{ width: 40, height: 1, background: '#E5E5EA' }} />
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER CTA */}
+      <section style={{ 
+        padding: '100px 20px', background: '#1D1D1F', color: 'white', textAlign: 'center' 
+      }}>
+        <h2 style={{ fontSize: '48px', fontWeight: 900, letterSpacing: '-2px', marginBottom: 20 }}>Ready to scale?</h2>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '18px', marginBottom: 40 }}>Join the network of conscious traders.</p>
+        <button 
+          onClick={onEnter}
+          style={{ 
+            background: 'white', color: 'black', border: 'none', padding: '18px 40px', 
+            borderRadius: '16px', fontWeight: 800, fontSize: '17px', cursor: 'pointer' 
+          }}
+        >
+          Claim Founder Status
         </button>
-      </header>
-
-      {/* THE 4 PILLARS */}
-      <section style={{ padding: '80px 20px', background: 'white' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-            <h2 style={{ textAlign: 'center', fontWeight: 800, fontSize: 32, marginBottom: 60 }}>Het Holistisch Performance Ecosysteem</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 30 }}>
-                <Pillar icon={<Brain size={32} color="#007AFF"/>} title="The Engine" subtitle="TradeLab + Voice" text="De dagelijkse uitvoering. Voice Analysis met röntgenogen die je emotie hoort." />
-                <Pillar icon={<Briefcase size={32} color="#FF9F0A"/>} title="The Inventory" subtitle="Portfolio" text="Het beheer van je middelen. Hoe bescherm ik mijn assets en funded accounts?" />
-                <Pillar icon={<ChartLineUp size={32} color="#30D158"/>} title="The Business" subtitle="Finance" text="De winstgevendheid. Draait je bedrijf ROI of ben je een hobbyist?" />
-                <Pillar icon={<Target size={32} color="#AF52DE"/>} title="The Purpose" subtitle="Goals & Rewards" text="De drijfveer. TCT verbindt je woede van vandaag aan je droomreis naar Bali." />
-            </div>
-        </div>
       </section>
 
-      {/* USP / TCT */}
-      <section style={{ padding: '100px 20px', maxWidth: 1000, margin: '0 auto', display: 'flex', gap: 50, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 300 }}>
-            <h2 style={{ fontSize: 40, fontWeight: 900, marginBottom: 20 }}>Ontmoet TCT. <br/>Je Accountability Partner.</h2>
-            <p style={{ fontSize: 18, color: '#48484A', lineHeight: 1.6 }}>
-                Andere tools kijken naar cijfers. TCT kijkt naar jou. Hij herkent patronen die jij mist ("Je hebt 3x wraak genomen deze week") en grijpt in vóórdat het fout gaat.
-            </p>
-            <div style={{ marginTop: 30, display: 'flex', gap: 15 }}>
-                <div style={{ padding: '15px 25px', background: '#F2F2F7', borderRadius: 16, fontWeight: 700 }}>Active Voice Logging</div>
-                <div style={{ padding: '15px 25px', background: '#F2F2F7', borderRadius: 16, fontWeight: 700 }}>Weekly Review</div>
-            </div>
-        </div>
-        <div style={{ flex: 1, minWidth: 300, background: '#1C1C1E', borderRadius: 30, padding: 40, color: 'white', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
-            <Microphone size={40} color="#FF3B30" weight="fill" style={{ marginBottom: 20 }}/>
-            <p style={{ fontFamily: 'monospace', fontSize: 14, color: '#86868B', marginBottom: 10 }}>[JOUW AUDIO INPUT]</p>
-            <p style={{ fontStyle: 'italic', opacity: 0.8, marginBottom: 30 }}>"Ik ben gefrustreerd en wil wraak nemen op de markt!"</p>
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.2)', marginBottom: 30 }}></div>
-            <p style={{ fontFamily: 'monospace', fontSize: 14, color: '#007AFF', marginBottom: 10 }}>[TCT INTERVENTIE]</p>
-            <p style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.5 }}>"Stop! Je hebt als doel gesteld om je gezin mee te nemen naar Bali. Deze wraak-trade brengt je verder van Bali vandaan. Is dat het waard?"</p>
-        </div>
-      </section>
-
-      <footer style={{ padding: '40px', textAlign: 'center', borderTop: '1px solid #E5E5EA', color: '#86868B', fontSize: 12 }}>
-        <p>&copy; 2025 DBT Cloud. High Performance Systems.</p>
-      </footer>
     </div>
   );
 }
 
-function Pillar({ icon, title, subtitle, text }) {
-    return (
-        <div style={{ padding: 30, background: '#F9F9F9', borderRadius: 24, transition: '0.3s' }}>
-            <div style={{ marginBottom: 20 }}>{icon}</div>
-            <h3 style={{ margin: '0 0 5px 0', fontSize: 18, fontWeight: 800 }}>{title}</h3>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#86868B', textTransform: 'uppercase', marginBottom: 15 }}>{subtitle}</div>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: '#48484A' }}>{text}</p>
-        </div>
-    )
+function ModuleCard({ icon, title, desc }) {
+  return (
+    <div style={{ 
+      background: 'white', padding: '40px', borderRadius: '28px', 
+      boxShadow: '0 10px 40px rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.02)' 
+    }}>
+      <div style={{ marginBottom: 20 }}>{icon}</div>
+      <h3 style={{ fontSize: '22px', fontWeight: 800, marginBottom: 15 }}>{title}</h3>
+      <p style={{ color: '#86868B', lineHeight: 1.6, fontSize: '15px', fontWeight: 500 }}>{desc}</p>
+    </div>
+  );
 }
