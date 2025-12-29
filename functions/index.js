@@ -455,3 +455,86 @@ exports.getAiSupportReply = onCall({
     return { draft: "Het spijt me, ik kon geen voorstel genereren. Probeer het handmatig." };
   }
 });
+// --- 6. AI TRADER INTAKE ANALYZER (Gemini 2.5 Flash Thinking Optimized) ---
+exports.analyzeTraderIntake = onCall({
+  secrets: ["GEMINI_API_KEY"],
+  region: "europe-west1"
+}, async (request) => {
+  const { data } = request;
+  const db = admin.firestore();
+  
+  if (!process.env.GEMINI_API_KEY) {
+    return { success: false, error: "API Sleutel mist." };
+  }
+
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  
+  // AANGEPAST: Gebruik de specifieke 2.5-flash identifier
+  // Let op: 'thinking' features worden geactiveerd via de generationConfig
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash", 
+    generationConfig: { 
+      responseMimeType: "application/json"
+      // Hier kun je eventueel thinking parameters toevoegen als de SDK versie dit ondersteunt
+    }
+  });
+
+  const { name, accounts, experience, biggestPain, email, isAudio, audioBase64 } = data;
+
+  const prompt = `
+    ## SYSTEM INSTRUCTION: TCT ONBOARDING & SHADOW ANALYST
+    
+    Jij bent TCT. Je beoordeelt of een trader geschikt is voor het "Propfolio PPOS" systeem.
+    Je krijgt data van een intake-formulier en een audio-fragment (voice memo).
+
+    **TAAK:**
+    1. **Transcriptie:** Luister naar de audio en schrijf een beknopte samenvatting van wat de trader zegt.
+    2. **Psychologische Profielschets (Shadow Analysis):** Analyseer de toon en inhoud. Is dit een discipline probleem, systeemgebrek, of emotionele instabiliteit (FOMO/Wraak)?
+    3. **Archetype:** Wijs een passend profiel toe.
+    4. **TCT Advies:** Geef een krachtige "Blueprint".
+
+    **OUTPUT JSON FORMAAT (STRIKT):**
+    {
+      "transcript_summary": "Korte samenvatting van de gesproken tekst in het Nederlands.",
+      "archetype": "Bijv. The Emotional Gambler, The Stuck Professional, The Overwhelmed Newbie",
+      "shadow_analysis": "Een diepe Nederlandse analyse van de mindset van deze persoon.",
+      "blueprint": "3 concrete stappen in het Nederlands voor deze trader.",
+      "readiness_score": 85,
+      "internal_note": "Waarom deze persoon wel/niet toelaten?"
+    }
+  `;
+
+  try {
+    let promptParts = [{ text: prompt }];
+
+    if (isAudio && audioBase64) {
+      promptParts.push({
+        inlineData: {
+          mimeType: "audio/webm",
+          data: audioBase64
+        }
+      });
+    } else {
+      promptParts[0].text += `\n\nINPUT: ${biggestPain}`;
+    }
+
+    // Voeg contextuele data toe
+    promptParts[0].text += `\nCONTEXT: Trader ${name}, Ervaring: ${experience}, Accounts: ${accounts}`;
+
+    const result = await model.generateContent(promptParts);
+    const analysis = JSON.parse(result.response.text());
+
+    // Schrijf naar Firestore
+    await db.collection('whitelist_intakes').add({
+      name, email, accounts, experience, 
+      analysis,
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, analysis };
+  } catch (error) {
+    console.error("Gemini 2.5 Error:", error);
+    return { success: false, error: "Thinking process failed." };
+  }
+});

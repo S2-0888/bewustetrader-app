@@ -7,13 +7,23 @@ import * as W from './DashboardWidgets';
 import WeeklyReviewWidget from './WeeklyReviewWidget'; 
 import NotificationBell from './NotificationBell'; // NIEUWE IMPORT
 
-// --- TCT COACH COMPONENT ---
-const TCTCoach = ({ trades, winrate, adherence }) => {
+// --- TCT COACH COMPONENT (MET CACHING LOGICA) ---
+const TCTCoach = ({ trades, winrate, adherence, userProfile }) => {
   const [insight, setInsight] = useState("TCT is aan het analyseren...");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTCTInsight = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // 1. Check of we vandaag al een inzicht hebben opgeslagen in het profiel
+      if (userProfile?.lastAiUpdate === today && userProfile?.aiCoachFeedback) {
+        setInsight(userProfile.aiCoachFeedback);
+        setLoading(false);
+        return; // Stop hier, we gebruiken de cache
+      }
+
+      // 2. Geen cache? Roep de AI aan
       setLoading(true);
       try {
         const functions = getFunctions(undefined, 'europe-west1');
@@ -22,16 +32,26 @@ const TCTCoach = ({ trades, winrate, adherence }) => {
           stats: { winrate, adherence },
           recentTrades: trades.slice(0, 3) 
         });
-        setInsight(result.data.insight);
+        
+        const newInsight = result.data.insight;
+        setInsight(newInsight);
+
+        // 3. Sla het resultaat op in Firestore bij de gebruiker voor de volgende keer
+        const userRef = doc(db, "users", auth.currentUser.uid);
+        await updateDoc(userRef, {
+          aiCoachFeedback: newInsight,
+          lastAiUpdate: today
+        });
+
       } catch (err) {
         console.error("TCT Error:", err);
-        setInsight("Blijf gefocust op je blueprint. De weg naar meesterschap is een marathon.");
+        setInsight(userProfile?.aiCoachFeedback || "Blijf gefocust op je blueprint.");
       }
       setLoading(false);
     };
 
-    if (trades.length > 0) fetchTCTInsight();
-  }, [trades.length, winrate, adherence]);
+    if (trades.length > 0 && userProfile) fetchTCTInsight();
+  }, [trades.length, winrate, adherence, userProfile?.lastAiUpdate]); // Trigger ook als de datum/cache wordt gereset
 
   return (
     <div style={{ 

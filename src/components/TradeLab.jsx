@@ -171,11 +171,21 @@ export default function TradeLab() {
   const [accounts, setAccounts] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [isProMode, setIsProMode] = useState(false);
-  const [showRules, setShowRules] = useState(false);
   const [showPriceFields, setShowPriceFields] = useState(true); 
   const [editingTrade, setEditingTrade] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [tctFeedback, setTctFeedback] = useState(''); 
+
+  // --- HIERONDER IS HET NIEUWE STUKJE GEHEUGEN ---
+  const [showRules, setShowRules] = useState(() => {
+    const saved = localStorage.getItem('tct_show_rules');
+    return saved === 'true'; 
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tct_show_rules', showRules);
+  }, [showRules]);
+  // ----------------------------------------------
 
   const [closingTrade, setClosingTrade] = useState(null); 
   const [closeExitPrice, setCloseExitPrice] = useState(''); 
@@ -258,6 +268,7 @@ export default function TradeLab() {
     if (!selectedFormAccount) return;
     const riskAmount = Math.abs(Number(form.risk));
     const score = Math.round(((form.checkedRules?.length || 0) / (config.rules?.length || 1)) * 100);
+    await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
     
     await addDoc(collection(db, "users", auth.currentUser.uid, "trades"), {
       ...form, 
@@ -275,6 +286,7 @@ export default function TradeLab() {
   const executeCloseTrade = async (e) => {
     e.preventDefault();
     if (!closingTrade) return;
+    await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
         status: 'CLOSED', pnl: Number(closePnl), exitPrice: Number(closeExitPrice),
         grossPnl: Number(closeGrossPnl), commission: Number(closeCommission || 0), 
@@ -286,6 +298,7 @@ export default function TradeLab() {
   const handleUpdateTrade = async (e) => {
     e.preventDefault();
     if (!editingTrade) return;
+    await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
     const net = Number(editingTrade.grossPnl || 0) - Math.abs(Number(editingTrade.commission || 0));
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
         ...editingTrade, pnl: net

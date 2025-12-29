@@ -1,171 +1,128 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, auth } from '../lib/firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { 
-  Rocket, ShieldCheck, Brain, ChartBar, 
-  ArrowRight, Crown, Warehouse, Fingerprint, 
-  CaretDown, Sparkle
+    ArrowsClockwise, ShieldCheck, Database, 
+    CaretRight, XCircle, CheckCircle 
 } from '@phosphor-icons/react';
 
-export default function LandingPage({ onEnter }) {
-  const [scrolled, setScrolled] = useState(false);
+// Importeer het losse component
+import IntakeChat from './IntakeChat'; 
 
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+export default function LandingPage() {
+    const navigate = useNavigate();
+    const [appState, setAppState] = useState('loading'); 
+    const BETA_MODE = true; // Handmatige switch: true = Whitelist, false = Public Sign Up
 
-  return (
-    <div style={{ 
-      background: '#FFFFFF', 
-      color: '#1D1D1F', 
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-      overflowX: 'hidden'
-    }}>
-      
-      {/* NAVIGATION */}
-      <nav style={{
-        position: 'fixed', top: 0, width: '100%', zIndex: 1000,
-        background: scrolled ? 'rgba(255,255,255,0.8)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(20px)' : 'none',
-        transition: 'all 0.3s ease',
-        borderBottom: scrolled ? '1px solid rgba(0,0,0,0.05)' : 'none'
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ background: '#1D1D1F', color: 'white', padding: '8px', borderRadius: '10px', fontWeight: 900, fontSize: '14px' }}>TCT</div>
-            <span style={{ fontWeight: 800, letterSpacing: '-0.5px' }}>PROPFOLIO</span>
-          </div>
-          <button 
-            onClick={onEnter}
-            style={{ 
-              background: '#1D1D1F', color: 'white', border: 'none', padding: '10px 20px', 
-              borderRadius: '12px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' 
-            }}
-          >
-            Founder Login
-          </button>
+    useEffect(() => {
+        const unsub = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                const userDoc = await getDoc(doc(db, "users", user.uid));
+                if (userDoc.exists() && userDoc.data().isApproved) navigate('/dashboard');
+                else setAppState('pending');
+            } else {
+                setAppState('landing');
+            }
+        });
+        return () => unsub();
+    }, [navigate]);
+
+    const handleGoogleLogin = async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const userDoc = await getDoc(doc(db, "users", result.user.uid));
+            if (userDoc.exists() && userDoc.data().isApproved) navigate('/dashboard');
+            else setAppState('pending');
+        } catch (err) { console.error(err); }
+    };
+
+    if (appState === 'loading') return <div style={styles.fullCenter}><ArrowsClockwise size={32} className="spinner" /></div>;
+
+    if (appState === 'pending') {
+        return (
+            <div style={styles.fullCenter}>
+                <div className="bento-card" style={{padding: 40, textAlign: 'center', maxWidth: 450, background: 'white'}}>
+                    <h2 style={{fontWeight: 900, marginTop: 20}}>Shadow Analysis in Progress</h2>
+                    <p style={{color: '#86868B', lineHeight: 1.6}}>TCT is currently auditing your intake data. Access to the Propfolio Cockpit is granted based on professional readiness.</p>
+                    <button onClick={() => auth.signOut()} style={{marginTop: 30, color: '#FF3B30', background: 'none', border: 'none', fontWeight: 700, cursor: 'pointer'}}>Cancel & Logout</button>
+                </div>
+            </div>
+        );
+    }
+
+    if (appState === 'intake') {
+        return <IntakeChat onCancel={() => setAppState('landing')} />;
+    }
+
+    return (
+        <div style={styles.landingWrapper}>
+            {/* STICKY NAV */}
+            <nav style={styles.nav}>
+                <div style={{fontWeight: 900, fontSize: 20, letterSpacing: -1}}>PROPFOLIO</div>
+                <button onClick={handleGoogleLogin} style={styles.btnSecondary}>CEO Login</button>
+            </nav>
+
+            {/* HERO SECTIE */}
+            <div style={styles.hero}>
+                <div style={styles.badge}>PPOS — PROPFIRM PORTFOLIO OPERATING SYSTEM</div>
+                <h1 style={styles.h1}>Trade like a business.<br/><span style={{color: '#007AFF'}}>Not a hobby.</span></h1>
+                <p style={styles.p}>Stop managing millions in messy spreadsheets. Scale your portfolio with TCT-powered emotional intelligence and institutional structure.</p>
+                
+                {BETA_MODE ? (
+                    <button onClick={() => setAppState('intake')} style={styles.btnMain}>
+                        Apply for Whitelist <CaretRight weight="bold" />
+                    </button>
+                ) : (
+                    <button onClick={handleGoogleLogin} style={styles.btnMain}>
+                        Get Started Now <CaretRight weight="bold" />
+                    </button>
+                )}
+            </div>
+
+            {/* FEATURE GRID: DE 3 PUNTEN */}
+            <div style={styles.featureGrid}>
+                <div className="bento-card" style={styles.featureCard}>
+                    <div style={styles.iconCircle}><CheckCircle size={24} weight="fill" /></div>
+                    <h3 style={styles.featureTitle}>Create your Challenge</h3>
+                    <p style={styles.featureText}>Manage & journal your account from day one. The Conscious Trader guides you through your goals with institutional precision.</p>
+                </div>
+
+                <div className="bento-card" style={styles.featureCard}>
+                    <div style={styles.iconCircle}><Database size={24} weight="fill" /></div>
+                    <h3 style={styles.featureTitle}>Build Your Prop Portfolio</h3>
+                    <p style={styles.featureText}>Buy, manage, and analyze all your challenges & funded accounts in one place. Get real-time AI-powered feedback.</p>
+                </div>
+
+                <div className="bento-card" style={styles.featureCard}>
+                    <div style={styles.iconCircle}><XCircle size={24} weight="fill" /></div>
+                    <h3 style={styles.featureTitle}>Stop the Excel Juggling</h3>
+                    <p style={styles.featureText}>Managing 10+ accounts in spreadsheets is a recipe for disaster. Propfolio gives you full control and payout overviews.</p>
+                </div>
+            </div>
+
+            <footer style={{ padding: '40px 20px', textAlign: 'center', color: '#86868B', fontSize: 12 }}>
+                &copy; {new Date().getFullYear()} Propfolio PPOS.
+            </footer>
         </div>
-      </nav>
-
-      {/* HERO SECTION */}
-      <section style={{ 
-        padding: '160px 20px 100px 20px', textAlign: 'center', maxWidth: 900, margin: '0 auto',
-        minHeight: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'center'
-      }}>
-        <div style={{ 
-          display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(0,122,255,0.05)', 
-          padding: '6px 16px', borderRadius: '30px', color: '#007AFF', fontSize: '12px', fontWeight: 800, marginBottom: 30,
-          margin: '0 auto 30px auto'
-        }}>
-          <Sparkle weight="fill" size={14} /> THE WORLD'S FIRST PROP-ERP
-        </div>
-        
-        <h1 style={{ 
-          fontSize: window.innerWidth < 768 ? '42px' : '72px', 
-          fontWeight: 900, letterSpacing: '-3px', lineHeight: 1, margin: '0 0 25px 0' 
-        }}>
-          Don’t just trade.<br />
-          <span style={{ color: '#86868B' }}>Run the business.</span>
-        </h1>
-        
-        <p style={{ 
-          fontSize: '20px', color: '#86868B', lineHeight: 1.5, maxWidth: 650, margin: '0 auto 40px auto', fontWeight: 500 
-        }}>
-          Manage your capital inventory, automate your discipline, and scale your payouts with TCT AI. Designed for high-performance traders.
-        </p>
-
-        <div style={{ display: 'flex', gap: 15, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button 
-            onClick={onEnter}
-            style={{ 
-              background: '#007AFF', color: 'white', border: 'none', padding: '18px 36px', 
-              borderRadius: '16px', fontWeight: 800, fontSize: '17px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 10px 30px rgba(0,122,255,0.3)'
-            }}
-          >
-            Get Founder Access <ArrowRight weight="bold" />
-          </button>
-        </div>
-      </section>
-
-      {/* MODULES SECTION - THE ERP LOGIC */}
-      <section style={{ background: '#F5F5F7', padding: '100px 20px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 60 }}>
-            <h2 style={{ fontSize: '40px', fontWeight: 900, letterSpacing: '-1.5px' }}>Enterprise Architecture</h2>
-            <p style={{ color: '#86868B', fontSize: '18px' }}>Moving beyond simple journaling into systematic inventory management.</p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr 1fr', gap: 25 }}>
-            
-            <ModuleCard 
-              icon={<Warehouse size={32} color="#007AFF" weight="duotone" />}
-              title="The Account Warehouse"
-              desc="Treat accounts as inventory. Track the full lifecycle from Purchased → Challenge → Funded → Payout Phase."
-            />
-            
-            <ModuleCard 
-              icon={<Brain size={32} color="#AF52DE" weight="duotone" />}
-              title="The Performance Lab"
-              desc="Conscious data-entry only. We don't believe in lazy imports. Administration is your greatest competitive edge."
-            />
-            
-            <ModuleCard 
-              icon={<ShieldCheck size={32} color="#30D158" weight="duotone" />}
-              title="TCT: AI Co-Pilot"
-              desc="A behavioral AI that monitors your emotions and risk. TCT intervenes when your psychology deviates from the plan."
-            />
-
-          </div>
-        </div>
-      </section>
-
-      {/* PHILOSOPHY SECTION */}
-      <section style={{ padding: '100px 20px', textAlign: 'center' }}>
-        <div style={{ maxWidth: 700, margin: '0 auto' }}>
-          <Crown size={48} weight="fill" color="#FFD60A" style={{ marginBottom: 20 }} />
-          <h2 style={{ fontSize: '36px', fontWeight: 900, marginBottom: 20 }}>The Effort Philosophy</h2>
-          <p style={{ fontSize: '20px', lineHeight: 1.6, color: '#1D1D1F', fontWeight: 500 }}>
-            "Traden op hoog niveau met een rommelige Excel-sheet is als een miljoenenbedrijf runnen op een kladblok. Propfolio dwingt tot bewustzijn. Winst is een resultaat van je proces, niet van geluk."
-          </p>
-          <div style={{ marginTop: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 15 }}>
-            <div style={{ width: 40, height: 1, background: '#E5E5EA' }} />
-            <span style={{ fontWeight: 800, fontSize: '14px', letterSpacing: '1px' }}>FOUNDERS EDITION</span>
-            <div style={{ width: 40, height: 1, background: '#E5E5EA' }} />
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER CTA */}
-      <section style={{ 
-        padding: '100px 20px', background: '#1D1D1F', color: 'white', textAlign: 'center' 
-      }}>
-        <h2 style={{ fontSize: '48px', fontWeight: 900, letterSpacing: '-2px', marginBottom: 20 }}>Ready to scale?</h2>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '18px', marginBottom: 40 }}>Join the network of conscious traders.</p>
-        <button 
-          onClick={onEnter}
-          style={{ 
-            background: 'white', color: 'black', border: 'none', padding: '18px 40px', 
-            borderRadius: '16px', fontWeight: 800, fontSize: '17px', cursor: 'pointer' 
-          }}
-        >
-          Claim Founder Status
-        </button>
-      </section>
-
-    </div>
-  );
+    );
 }
 
-function ModuleCard({ icon, title, desc }) {
-  return (
-    <div style={{ 
-      background: 'white', padding: '40px', borderRadius: '28px', 
-      boxShadow: '0 10px 40px rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.02)' 
-    }}>
-      <div style={{ marginBottom: 20 }}>{icon}</div>
-      <h3 style={{ fontSize: '22px', fontWeight: 800, marginBottom: 15 }}>{title}</h3>
-      <p style={{ color: '#86868B', lineHeight: 1.6, fontSize: '15px', fontWeight: 500 }}>{desc}</p>
-    </div>
-  );
-}
+const styles = {
+    landingWrapper: { background: '#F5F5F7', minHeight: '100vh', overflowY: 'auto' },
+    fullCenter: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7' },
+    nav: { position: 'sticky', top: 0, zIndex: 100, background: 'rgba(245, 245, 247, 0.8)', backdropFilter: 'blur(20px)', padding: '20px 50px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)' },
+    hero: { minHeight: '90vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '100px 20px 40px 20px' },
+    badge: { fontSize: 10, fontWeight: 900, color: '#007AFF', background: 'rgba(0,122,255,0.08)', padding: '8px 16px', borderRadius: 20, marginBottom: 25, letterSpacing: 1 },
+    h1: { fontSize: 'clamp(32px, 6vw, 72px)', fontWeight: 900, letterSpacing: '-3px', lineHeight: 1, margin: 0 },
+    p: { fontSize: 18, color: '#86868B', maxWidth: 650, marginTop: 25, lineHeight: 1.6 },
+    btnMain: { marginTop: 40, padding: '20px 40px', background: '#1D1D1F', color: 'white', border: 'none', borderRadius: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 },
+    btnSecondary: { padding: '10px 20px', borderRadius: 12, border: '1px solid #E5E5EA', background: 'white', fontWeight: 700, cursor: 'pointer', fontSize: 13 },
+    featureGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 30, maxWidth: 1200, margin: '40px auto 100px auto', padding: '0 20px' },
+    featureCard: { background: 'white', padding: '40px', textAlign: 'left', borderRadius: '32px', border: '1px solid #E5E5EA' },
+    iconCircle: { width: 48, height: 48, borderRadius: 14, background: '#007AFF10', color: '#007AFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+    featureTitle: { fontSize: 20, fontWeight: 900, marginBottom: 15, color: '#1D1D1F' },
+    featureText: { fontSize: 15, color: '#86868B', lineHeight: 1.6 }
+};

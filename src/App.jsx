@@ -1,239 +1,93 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Crown, Flask, Flag 
+  Gear, SignOut, ShieldCheck, Crown, Flag 
 } from '@phosphor-icons/react';
 
-// --- IMPORT NIEUWE PUBLIC & BETA COMPONENTS ---
+// --- COMPONENTS ---
 import LandingPage from './components/LandingPage';
 import FeedbackWidget from './components/FeedbackWidget';
 import OnboardingModal from './components/OnboardingModal';
-
 import Dashboard from './components/Dashboard';
 import TradeLab from './components/TradeLab';
 import Portfolio from './components/Portfolio';
 import Finance from './components/Finance';
 import Goals from './components/Goals'; 
 import Settings from './components/Settings';
-import Login from './components/Login';
 import Admin from './components/Admin';
-import DesignLab from './components/DesignLab'; 
 
-function App() {
-  const [user, loading] = useAuthState(auth);
-  const [view, setView] = useState('cockpit');
-  const [userProfile, setUserProfile] = useState(null);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
-
-  // --- STATE VOOR LANDING PAGE & MODAL ---
-  const [showLogin, setShowLogin] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-
-  // --- VOEG DIT TOE VOOR DE DESKTOP/MOBILE CHECK ---
+// We maken een aparte 'AuthenticatedApp' om de sidebar logica schoon te houden
+function AuthenticatedApp({ userProfile, handleLogout }) {
+  // GEGEVENS UIT LOCALSTORAGE HALEN OF STANDAARD 'cockpit'
+  const [view, setView] = useState(() => {
+    return localStorage.getItem('tct_active_view') || 'cockpit';
+  });
+  
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isAdmin = userProfile?.role === 'admin';
+
+  // OPSLAAN IN LOCALSTORAGE BIJ WIJZIGING
+  useEffect(() => {
+    localStorage.setItem('tct_active_view', view);
+  }, [view]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
-
-    // --- CHECK ONBOARDING STATUS ---
-    const hasSeenOnboarding = localStorage.getItem('tct_onboarding_completed');
-    if (!hasSeenOnboarding) {
-        setShowOnboarding(true);
-    }
-
-    if (user) {
-      setIsProfileLoading(true);
-      const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-        if (docSnap.exists()) {
-          setUserProfile(docSnap.data());
-        }
-        setIsProfileLoading(false);
-      });
-      return () => {
-        unsub();
-        window.removeEventListener('resize', handleResize);
-      };
-    } else {
-      setIsProfileLoading(false);
-      setUserProfile(null);
-    }
     return () => window.removeEventListener('resize', handleResize);
-  }, [user]);
-  // ------------------------------------------------
-
-  if (loading || (user && isProfileLoading)) return (
-    <div style={{ display: 'flex', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7', fontFamily: 'sans-serif' }}>
-      <div style={{ position: 'relative', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-          <div style={{ position: 'absolute', width: 30, height: 30, borderTop: '3.5px solid #1D1D1F', borderLeft: '3.5px solid #1D1D1F', transform: 'rotate(45deg)', top: 2 }}></div>
-          <div style={{ position: 'absolute', width: 10, height: 10, borderRadius: '50%', border: '3.5px solid #1D1D1F', bottom: 4 }}></div>
-      </div>
-      <div style={{ color: '#1D1D1F', fontWeight: 800, fontSize: 14, letterSpacing: '1px' }}>MATCHING SYSTEMS...</div>
-    </div>
-  );
-
-  // --- PUBLIC FLOW (Als niet ingelogd) ---
-  if (!user) {
-    if (showLogin) {
-      // Login component met een simpele 'Back' knop optie zou mooi zijn, maar voor nu puur Login
-      return (
-        <div style={{ position: 'relative' }}>
-            <button 
-                onClick={() => setShowLogin(false)}
-                style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, background: 'none', border: 'none', color: '#86868B', cursor: 'pointer', fontWeight: 600 }}
-            >
-                ← Back
-            </button>
-            <Login />
-        </div>
-      );
-    }
-    // Standaard: Toon de Landing Page
-    return <LandingPage onLoginClick={() => setShowLogin(true)} />;
-  }
-
-  const handleLogout = () => { auth.signOut(); setShowLogin(false); };
-  const isAdmin = userProfile?.role === 'admin';
-  const isApproved = userProfile?.isApproved || isAdmin;
-
-  if (user && !isApproved) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20, background: '#F5F5F7', fontFamily: 'sans-serif' }}>
-        <div style={{ maxWidth: 400, padding: 40, background: 'white', borderRadius: 30, boxShadow: '0 20px 40px rgba(0,0,0,0.05)' }}>
-          <Crown size={64} weight="fill" color="#AF52DE" />
-          <h2 style={{ fontSize: 24, fontWeight: 800, marginTop: 24, marginBottom: 8 }}>Account Pending Approval</h2>
-          <p style={{ color: '#86868B', fontSize: 15, lineHeight: 1.5, marginBottom: 24 }}>Welcome to the DBT Network. For exclusivity reasons, your access is currently being verified by an admin.</p>
-          
-          <div style={{ padding: '24px 20px', background: '#F5F5F7', borderRadius: 20, marginBottom: 30 }}>
-            <p style={{ fontSize: 13, color: '#1D1D1F', fontWeight: 700, margin: '0 0 15px 0' }}>Skip the wait with Founder Status</p>
-            
-            {/* STRIPE PAYMENT LINK KNOP */}
-            <button 
-              onClick={() => window.location.href = 'https://buy.stripe.com/test_6oUaEQf6u0eQ70a8nT1ZS00'}
-              style={{ 
-                width: '100%', 
-                padding: '14px', 
-                background: 'linear-gradient(135deg, #AF52DE 0%, #5856D6 100%)', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: '12px', 
-                fontWeight: 800, 
-                fontSize: '12px', 
-                cursor: 'pointer',
-                marginBottom: '15px',
-                letterSpacing: '0.5px'
-              }}
-            >
-              GET FOUNDER STATUS (€99)
-            </button>
-
-            <a href="mailto:support@yourdomain.com" style={{ color: '#86868B', textDecoration: 'none', fontSize: 11, fontWeight: 600 }}>Contact Network Admin</a>
-          </div>
-          
-          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#FF3B30', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Sign Out</button>
-        </div>
-      </div>
-    );
-  }
+  }, []);
 
   return (
     <div className="app-container">
-      {/* SIDEBAR */}
       <aside className="sidebar">
         <div className="sidebar-header" style={{ padding: '10px 0 35px 0' }}>
           <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#1D1D1F', letterSpacing: '1px', lineHeight: 1 }}>DBT</div>
-              <div style={{ fontSize: 8, fontWeight: 800, color: '#86868B', marginTop: 4 }}>CONSCIOUS TRADER</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#1D1D1F', letterSpacing: '1px', lineHeight: 1 }}>PROPFOLIO</div>
+              <div style={{ fontSize: 8, fontWeight: 800, color: '#86868B', marginTop: 4 }}>POWERED BY TCT</div>
           </div>
         </div>
 
-        <nav className="sidebar-nav" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <nav className="sidebar-nav">
           <button className={`nav-item ${view === 'cockpit' ? 'active' : ''}`} onClick={() => setView('cockpit')}>
             <SquaresFour size={20} weight={view === 'cockpit' ? "fill" : "bold"} />
             <span>Cockpit</span>
           </button>
           <button className={`nav-item ${view === 'tradelab' ? 'active' : ''}`} onClick={() => setView('tradelab')}>
             <Notebook size={20} weight={view === 'tradelab' ? "fill" : "bold"} />
-            <span>Trade Lab</span>
+            <span>Performance Lab</span>
           </button>
           <button className={`nav-item ${view === 'portfolio' ? 'active' : ''}`} onClick={() => setView('portfolio')}>
             <Briefcase size={20} weight={view === 'portfolio' ? "fill" : "bold"} />
-            <span>Inventory</span>
+            <span>Warehouse</span>
           </button>
           <button className={`nav-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>
             <ChartLineUp size={20} weight={view === 'finance' ? "fill" : "bold"} />
             <span>Finance</span>
           </button>
-          
-          {/* KNOP VOOR VISION/GOALS */}
           <button className={`nav-item ${view === 'goals' ? 'active' : ''}`} onClick={() => setView('goals')}>
             <Flag size={20} weight={view === 'goals' ? "fill" : "bold"} />
             <span>Vision</span>
           </button>
 
           {isAdmin && (
-            <button 
-                className={`nav-item ${view === 'design-lab' ? 'active' : ''}`} 
-                onClick={() => setView('design-lab')} 
-                style={{ 
-                    marginTop: 10, 
-                    border: '1px dashed #AF52DE', 
-                    background: view === 'design-lab' ? '#AF52DE' : 'rgba(175, 82, 222, 0.05)',
-                    color: view === 'design-lab' ? 'white' : '#AF52DE'
-                }}
-            >
-              <Flask size={20} weight={view === 'design-lab' ? "fill" : "bold"} />
-              <span>Design Lab</span>
-            </button>
-          )}
-
-          {isAdmin && (
-            <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF', border: view === 'admin' ? 'none' : '1px solid rgba(0,122,255,0.1)' }}>
-              <ShieldCheck size={20} weight={view === 'admin' ? "fill" : "bold"} />
-              <span>Command Center</span>
-            </button>
+            <>
+              <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF' }}>
+                <ShieldCheck size={20} weight="bold" />
+                <span>Command Center</span>
+              </button>
+            </>
           )}
         </nav>
 
-        <div className="sidebar-footer" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button 
-            className={`nav-item ${view === 'settings' ? 'active' : ''}`} 
-            onClick={() => setView('settings')}
-            style={{ padding: '8px', minWidth: 'unset', flex: 1, justifyContent: 'center' }}
-            title="Settings"
-          >
-            <Gear size={22} weight={view === 'settings' ? "fill" : "bold"} />
-          </button>
-          
-          <div style={{ width: 1, height: 20, background: 'rgba(0,0,0,0.05)' }}></div>
-
-          <button 
-            className="nav-item" 
-            onClick={handleLogout} 
-            style={{ color: '#FF3B30', padding: '8px', minWidth: 'unset', flex: 1, justifyContent: 'center' }}
-            title="Sign Out"
-          >
-            <SignOut size={22} weight="bold" />
-          </button>
+        <div className="sidebar-footer" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center' }}>
+          <button className="nav-item" onClick={() => setView('settings')} style={{ flex: 1 }}><Gear size={22} /></button>
+          <button className="nav-item" onClick={handleLogout} style={{ color: '#FF3B30', flex: 1 }}><SignOut size={22} /></button>
         </div>
       </aside>
-
-      {/* --- GEWIJZIGDE MOBIELE TAB BAR: Alleen cockpit & alleen op mobiel --- */}
-      {isMobile && (
-        <nav className="mobile-tab-bar" style={{ display: 'flex', justifyContent: 'center', padding: '0 20px' }}>
-          <button 
-            className={`tab-item ${view === 'cockpit' ? 'active' : ''}`} 
-            onClick={() => setView('cockpit')}
-            style={{ width: '80px', flex: 'none' }}
-          >
-            <SquaresFour size={28} weight={view === 'cockpit' ? "fill" : "regular"} />
-            <span style={{ fontSize: '10px', fontWeight: 800 }}>Cockpit</span>
-          </button>
-        </nav>
-      )}
 
       <main className="main">
         {view === 'cockpit' && <Dashboard setView={setView} />}
@@ -243,19 +97,59 @@ function App() {
         {view === 'goals' && <Goals />} 
         {view === 'settings' && <Settings />}
         {view === 'admin' && isAdmin && <Admin />}
-        {view === 'design-lab' && isAdmin && <DesignLab />}
       </main>
+    </div>
+  );
+}
 
-      {/* --- BETA FEEDBACK & ONBOARDING --- */}
+// --- MAIN APP COMPONENT ---
+function App() {
+  const [user, loading] = useAuthState(auth);
+  const [userProfile, setUserProfile] = useState(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (!localStorage.getItem('tct_onboarding_completed')) setShowOnboarding(true);
+
+    if (user) {
+      const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
+        setUserProfile(snap.data());
+        setIsProfileLoading(false);
+      });
+      return () => unsub();
+    } else {
+      setIsProfileLoading(false);
+    }
+  }, [user]);
+
+  if (loading || isProfileLoading) return <div className="loading-screen">MATCHING SYSTEMS...</div>;
+
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={!user ? <LandingPage /> : <Navigate to="/dashboard" />} />
+        <Route path="/dashboard" element={
+          user && (userProfile?.isApproved || userProfile?.role === 'admin') ? (
+            <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} />
+          ) : user ? (
+             <div className="pending-screen">
+                <Crown size={64} color="#AF52DE" />
+                <h2>Account Pending Approval</h2>
+                <button onClick={() => auth.signOut()}>Sign Out</button>
+             </div>
+          ) : (
+            <Navigate to="/" />
+          )
+        } />
+      </Routes>
+
       <FeedbackWidget />
-      <OnboardingModal 
-        isOpen={showOnboarding} 
-        onClose={() => {
+      <OnboardingModal isOpen={showOnboarding} onClose={() => {
           setShowOnboarding(false);
           localStorage.setItem('tct_onboarding_completed', 'true');
-        }} 
-      />
-    </div>
+      }} />
+    </Router>
   );
 }
 
