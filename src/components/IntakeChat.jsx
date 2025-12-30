@@ -51,7 +51,7 @@ export default function IntakeChat({ onCancel }) {
     { field: 'accounts', type: 'select', options: ['0', '1-2', '3-5', '5+'], label: translations.en.accounts },
     { field: 'experience', type: 'select', options: ['< 1 year', '1-3 years', '3+ years'], label: translations.en.experience },
     { field: 'biggestPain', type: 'voice_text', label: translations.en.pain },
-    { field: 'email', type: 'email', placeholder: 'Email...' }
+    { field: 'email', type: 'email', placeholder: 'Enter your professional email address (e.g. john@doe.com)' }
   ];
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatLog, isTyping]);

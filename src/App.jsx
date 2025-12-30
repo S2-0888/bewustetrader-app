@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'; // Toegevoegd: Firestore methodes
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'; // Toegevoegd: Auth methodes
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Crown, Flag 
+  Gear, SignOut, ShieldCheck, Flag 
 } from '@phosphor-icons/react';
 
 // --- COMPONENTS ---
@@ -20,20 +21,39 @@ import Goals from './components/Goals';
 import Settings from './components/Settings';
 import Admin from './components/Admin';
 
-// We maken een aparte 'AuthenticatedApp' om de sidebar logica schoon te houden
+// --- LOGIN LOGIC (VOOR NAADLOZE DATABASE REGISTRATIE) ---
+export const handleSignIn = async () => {
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    // --- CRITICAL: Maak de user aan in Firestore als deze niet bestaat ---
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        status: "pending",
+        isApproved: false, // John ziet de 'Offline' screen tot jij hem goedkeurt
+        role: "trader",
+        createdAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error("Login failed:", error);
+  }
+};
+
 function AuthenticatedApp({ userProfile, handleLogout }) {
-  // GEGEVENS UIT LOCALSTORAGE HALEN OF STANDAARD 'cockpit'
-  const [view, setView] = useState(() => {
-    return localStorage.getItem('tct_active_view') || 'cockpit';
-  });
-  
+  const [view, setView] = useState(() => localStorage.getItem('tct_active_view') || 'cockpit');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const isAdmin = userProfile?.role === 'admin';
 
-  // OPSLAAN IN LOCALSTORAGE BIJ WIJZIGING
-  useEffect(() => {
-    localStorage.setItem('tct_active_view', view);
-  }, [view]);
+  useEffect(() => { localStorage.setItem('tct_active_view', view); }, [view]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -74,12 +94,10 @@ function AuthenticatedApp({ userProfile, handleLogout }) {
           </button>
 
           {isAdmin && (
-            <>
-              <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF' }}>
-                <ShieldCheck size={20} weight="bold" />
-                <span>Command Center</span>
-              </button>
-            </>
+            <button className={`nav-item ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')} style={{ marginTop: 20, background: view === 'admin' ? '#1D1D1F' : 'rgba(0,122,255,0.05)', color: view === 'admin' ? 'white' : '#007AFF' }}>
+              <ShieldCheck size={20} weight="bold" />
+              <span>Command Center</span>
+            </button>
           )}
         </nav>
 
@@ -102,7 +120,6 @@ function AuthenticatedApp({ userProfile, handleLogout }) {
   );
 }
 
-// --- MAIN APP COMPONENT ---
 function App() {
   const [user, loading] = useAuthState(auth);
   const [userProfile, setUserProfile] = useState(null);
@@ -128,16 +145,31 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={!user ? <LandingPage /> : <Navigate to="/dashboard" />} />
+        <Route path="/" element={!user ? <LandingPage onSignIn={handleSignIn} /> : <Navigate to="/dashboard" />} />
         <Route path="/dashboard" element={
-          user && (userProfile?.isApproved || userProfile?.role === 'admin') ? (
-            <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} />
-          ) : user ? (
-             <div className="pending-screen">
-                <Crown size={64} color="#AF52DE" />
-                <h2>Account Pending Approval</h2>
-                <button onClick={() => auth.signOut()}>Sign Out</button>
-             </div>
+          user ? (
+            !userProfile ? (
+              <div className="loading-screen">INITIALIZING PROFILE...</div>
+            ) : (userProfile.isApproved || userProfile.role === 'admin') ? (
+              <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} />
+            ) : (
+              /* --- NEW PTMS PENDING SCREEN (REPLACING THE CROWN) --- */
+              <div className="pending-screen" style={{ backgroundColor: '#000', color: '#fff', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px' }}>
+                 <div className="blink-logo">
+                    <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'radial-gradient(circle, #00ff00 0%, #003300 100%)', boxShadow: '0 0 20px #00ff00', animation: 'pulse 2s infinite ease-in-out' }}></div>
+                 </div>
+                 <h2 style={{ fontWeight: 900, marginTop: 24, letterSpacing: '2px' }}>COMMAND CENTER OFFLINE</h2>
+                 <p style={{ color: '#86868B', marginBottom: 30, maxWidth: '400px' }}>Your PTMS access is pending manual verification by the Architect.</p>
+                 <button onClick={() => auth.signOut()} style={{ background: 'transparent', color: '#FF3B30', border: '1px solid #FF3B30', padding: '12px 24px', borderRadius: '12px', cursor: 'pointer', fontWeight: 800 }}>Sign Out</button>
+                 <style>{`
+                   @keyframes pulse {
+                     0% { transform: scale(1); opacity: 1; }
+                     50% { transform: scale(0.9); opacity: 0.6; }
+                     100% { transform: scale(1); opacity: 1; }
+                   }
+                 `}</style>
+              </div>
+            )
           ) : (
             <Navigate to="/" />
           )
