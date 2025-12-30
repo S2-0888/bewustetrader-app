@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
-import { doc, onSnapshot, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'; // Toegevoegd: Firestore methodes
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'; // Toegevoegd: Auth methodes
+import { doc, onSnapshot, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore'; 
+import { 
+  signInWithPopup, 
+  signInWithRedirect, 
+  GoogleAuthProvider, 
+  getRedirectResult 
+} from 'firebase/auth';
 import { 
   SquaresFour, Notebook, Briefcase, ChartLineUp, 
   Gear, SignOut, ShieldCheck, Flag 
@@ -21,30 +26,15 @@ import Goals from './components/Goals';
 import Settings from './components/Settings';
 import Admin from './components/Admin';
 
-// --- LOGIN LOGIC (VOOR NAADLOZE DATABASE REGISTRATIE) ---
+// --- LOGIN LOGIC ---
 export const handleSignIn = async () => {
   const provider = new GoogleAuthProvider();
   try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-
-    // --- CRITICAL: Maak de user aan in Firestore als deze niet bestaat ---
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
-
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        status: "pending",
-        isApproved: false, // John ziet de 'Offline' screen tot jij hem goedkeurt
-        role: "trader",
-        createdAt: serverTimestamp()
-      });
-    }
+    // Gebruik signInWithPopup voor een stabielere sessie op localhost
+    await signInWithPopup(auth, provider);
   } catch (error) {
     console.error("Login failed:", error);
+    alert("Login failed. Please try again or check your browser settings.");
   }
 };
 
@@ -126,19 +116,63 @@ function App() {
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
+  const adminEmails = ["stuiefranken@gmail.com"];
+
+  // --- 1. DE GEBOORTE: Directe Shadow Profile creatie bij login ---
   useEffect(() => {
     if (!localStorage.getItem('tct_onboarding_completed')) setShowOnboarding(true);
 
     if (user) {
-      const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
-        setUserProfile(snap.data());
+      const userRef = doc(db, "users", user.uid);
+      
+      const unsub = onSnapshot(userRef, async (snap) => {
+        let data = snap.data();
+        
+        // Als de user wel is ingelogd bij Google, maar nog geen document heeft in Firestore
+        if (!snap.exists()) {
+          console.log("New user detected: Creating Shadow Profile...");
+          const newProfile = {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName || "New Trader",
+            isApproved: false, 
+            role: 'trader',
+            status: 'pending',
+            createdAt: serverTimestamp(),
+            hasCompletedIntake: false
+          };
+          await setDoc(userRef, newProfile);
+          data = newProfile;
+        }
+
+        // Extra check: dwing admin status af voor jou
+        if (adminEmails.includes(user.email)) {
+          if (data?.role !== 'admin' || !data?.isApproved) {
+            await setDoc(userRef, {
+              isApproved: true,
+              role: 'admin',
+              status: 'approved'
+            }, { merge: true });
+          }
+        }
+
+        setUserProfile(data);
         setIsProfileLoading(false);
       });
       return () => unsub();
     } else {
       setIsProfileLoading(false);
+      setUserProfile(null);
     }
   }, [user]);
+
+  // --- 2. OPSCHONING: Legacy check ---
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try { await getRedirectResult(auth); } catch (e) { console.error(e); }
+    };
+    checkRedirect();
+  }, []);
 
   if (loading || isProfileLoading) return <div className="loading-screen">MATCHING SYSTEMS...</div>;
 
@@ -146,6 +180,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={!user ? <LandingPage onSignIn={handleSignIn} /> : <Navigate to="/dashboard" />} />
+        
         <Route path="/dashboard" element={
           user ? (
             !userProfile ? (
@@ -153,22 +188,8 @@ function App() {
             ) : (userProfile.isApproved || userProfile.role === 'admin') ? (
               <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} />
             ) : (
-              /* --- NEW PTMS PENDING SCREEN (REPLACING THE CROWN) --- */
-              <div className="pending-screen" style={{ backgroundColor: '#000', color: '#fff', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px' }}>
-                 <div className="blink-logo">
-                    <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'radial-gradient(circle, #00ff00 0%, #003300 100%)', boxShadow: '0 0 20px #00ff00', animation: 'pulse 2s infinite ease-in-out' }}></div>
-                 </div>
-                 <h2 style={{ fontWeight: 900, marginTop: 24, letterSpacing: '2px' }}>COMMAND CENTER OFFLINE</h2>
-                 <p style={{ color: '#86868B', marginBottom: 30, maxWidth: '400px' }}>Your PTMS access is pending manual verification by the Architect.</p>
-                 <button onClick={() => auth.signOut()} style={{ background: 'transparent', color: '#FF3B30', border: '1px solid #FF3B30', padding: '12px 24px', borderRadius: '12px', cursor: 'pointer', fontWeight: 800 }}>Sign Out</button>
-                 <style>{`
-                   @keyframes pulse {
-                     0% { transform: scale(1); opacity: 1; }
-                     50% { transform: scale(0.9); opacity: 0.6; }
-                     100% { transform: scale(1); opacity: 1; }
-                   }
-                 `}</style>
-              </div>
+              /* --- 3. DE ROUTING: Als niet goedgekeurd, toon de LandingPage (die de Pending state/Intake afhandelt) --- */
+              <LandingPage onSignIn={handleSignIn} />
             )
           ) : (
             <Navigate to="/" />

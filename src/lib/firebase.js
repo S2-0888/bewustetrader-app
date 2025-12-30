@@ -5,7 +5,9 @@ import { getFirestore } from "firebase/firestore";
 // Let op: Heb je dit stukje goed overgenomen van Google?
 const firebaseConfig = {
   apiKey: "AIzaSyBwV2VrVdrvk7dgab1FIYUfjhvhip4eXtI",
-  authDomain: "bewustetrader.firebaseapp.com",
+authDomain: window.location.hostname === 'localhost' 
+    ? "bewustetrader.firebaseapp.com" 
+    : "propfolio.app",
   projectId: "bewustetrader",
   storageBucket: "bewustetrader.firebasestorage.app",
   messagingSenderId: "289286815246",

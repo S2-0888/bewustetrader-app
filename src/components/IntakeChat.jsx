@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { 
   PaperPlaneTilt, Robot, Microphone, 
@@ -14,7 +15,7 @@ const translations = {
     email: "At what email address can I reach you?",
     processing: "TCT is analyzing your profile...",
     btnSend: "Send Response",
-    successTitle: "Analysis Complete", // Aangepast voor meer impact
+    successTitle: "Analysis Complete", 
     close: "Close"
   }
 };
@@ -28,6 +29,7 @@ export default function IntakeChat({ onCancel }) {
   const scrollRef = useRef(null);
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
+  const hasStarted = useRef(false); 
 
   const [formData, setFormData] = useState({
     name: '', 
@@ -38,20 +40,41 @@ export default function IntakeChat({ onCancel }) {
     label: 'beta_tester',
     audioBase64: null,
     isAudio: false,
-    analysis: null // Hier slaan we het resultaat van Gemini op
+    analysis: null 
   });
 
   const [chatLog, setChatLog] = useState([
-    { role: 'tct', text: "Hello, I am TCT. Your AI Co-Pilot." },
-    { role: 'tct', text: "Shall we begin? What is your name?" }
+    { role: 'tct', text: "Systems online. I am The Conscious Trader." }
   ]);
 
+  useEffect(() => {
+    if (hasStarted.current) return; 
+    hasStarted.current = true; 
+
+    const introSequence = async () => {
+      setChatLog([{ role: 'tct', text: "Systems online. I am The Conscious Trader." }]); 
+      
+      await new Promise(res => setTimeout(res, 1500)); 
+      setIsTyping(true); 
+      await new Promise(res => setTimeout(res, 800)); 
+      setIsTyping(false); 
+      addMessage('tct', "I'm here to bridge the gap between your emotions and institutional execution."); 
+      
+      await new Promise(res => setTimeout(res, 2000)); 
+      setIsTyping(true); 
+      await new Promise(res => setTimeout(res, 800));
+      setIsTyping(false); 
+      addMessage('tct', `Let’s calibrate your profile. To start: what is your name?`); 
+    };
+
+    introSequence(); 
+  }, []); 
+
   const steps = [
-    { field: 'name', type: 'text', placeholder: 'Your name...' },
-    { field: 'accounts', type: 'select', options: ['0', '1-2', '3-5', '5+'], label: translations.en.accounts },
-    { field: 'experience', type: 'select', options: ['< 1 year', '1-3 years', '3+ years'], label: translations.en.experience },
-    { field: 'biggestPain', type: 'voice_text', label: translations.en.pain },
-    { field: 'email', type: 'email', placeholder: 'Enter your professional email address (e.g. john@doe.com)' }
+    { field: 'name', type: 'text', placeholder: 'Identify yourself...' },
+    { field: 'accounts', type: 'select', options: ['None', '1-2', '3-5', 'More'], label: "How many accounts are you currently operating?" },
+    { field: 'experience', type: 'select', options: ['Rookie', '1-3 Years', '4+'], label: "How deep is your market experience?" },
+    { field: 'biggestPain', type: 'voice_text', label: "What is the primary problem in your trading right now? Use the mic for a voice reflection." }
   ];
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatLog, isTyping]);
@@ -74,15 +97,6 @@ export default function IntakeChat({ onCancel }) {
   };
 
   const handleNext = async (val, isAudio = false) => {
-    // E-mail validatie
-    if (steps[step].field === 'email' && !isAudio) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(val)) {
-        alert("Please enter a valid email address.");
-        return;
-      }
-    }
-
     const currentField = steps[step].field;
     const updatedData = { 
       ...formData, 
@@ -109,15 +123,45 @@ export default function IntakeChat({ onCancel }) {
   const submitToCloudFunction = async (finalData) => {
     setLoading(true);
     try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Geen actieve sessie gevonden");
+
       const functions = getFunctions(undefined, 'europe-west1');
       const analyze = httpsCallable(functions, 'analyzeTraderIntake');
       
       const result = await analyze(finalData);
-      
-      // Sla de analyse op in de state zodat we het kunnen tonen
+      const analysisResult = result.data.analysis;
+
+      const userDocData = {
+        uid: user.uid,
+        email: user.email,
+        name: finalData.name,
+        accounts: finalData.accounts,
+        experience: finalData.experience,
+        biggestPain: finalData.biggestPain,
+        archetype: analysisResult?.archetype || 'Analyzing...',
+        shadow_analysis: analysisResult?.shadow_analysis || '',
+        isApproved: false, 
+        role: 'trader',
+        status: 'pending',
+        hasCompletedIntake: true, // DE TRIGGER VOOR LANDINGPAGE
+        lastIntakeUpdate: serverTimestamp()
+      };
+
+      // 1. Shadow Profile updaten/maken met hasCompletedIntake: true
+      await setDoc(doc(db, "users", user.uid), userDocData, { merge: true });
+
+      // 2. Intake backup opslaan
+      await setDoc(doc(db, "whitelist_intakes", user.uid), {
+        email: user.email,
+        status: 'pending',
+        submittedAt: serverTimestamp(),
+        data: finalData
+      });
+
       setFormData(prev => ({
         ...prev,
-        analysis: result.data.analysis
+        analysis: analysisResult
       }));
 
       setSuccess(true);
@@ -130,40 +174,40 @@ export default function IntakeChat({ onCancel }) {
 
   const addMessage = (role, text) => setChatLog(prev => [...prev, { role, text }]);
 
-  // --- AANGEPAST SUCCES SCHERM MET VOICE BEVESTIGING ---
-  if (success) return (
-    <div style={fullScreenOverlay}>
-      <div style={{ maxWidth: 450, textAlign: 'center', padding: 20 }}>
-        <CheckCircle size={80} weight="fill" color="#30D158" />
-        <h2 style={{ fontSize: 28, fontWeight: 900, marginTop: 24 }}>{translations.en.successTitle}</h2>
+ if (success) return (
+    <div style={{...fullScreenOverlay, overflowY: 'auto', padding: '10px'}}>
+      <div style={{ maxWidth: 450, width: '100%', textAlign: 'center', padding: '10px 0' }}>
+        <CheckCircle size={60} weight="fill" color="#30D158" />
+        <h2 style={{ fontSize: 24, fontWeight: 900, marginTop: 15 }}>Analysis Complete</h2>
         
-        <div style={resultCard}>
+        <div style={{...resultCard, padding: '24px', margin: '20px 0', border: '1px solid #007AFF20', background: 'linear-gradient(180deg, #FFFFFF 0%, #F9F9FB 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Robot size={22} weight="fill" color="#007AFF" />
-            <span style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', letterSpacing: 1 }}>TCT SHADOW REPORT</span>
+            <span style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', letterSpacing: 1 }}>TCT CLASSIFICATION</span>
           </div>
 
-          {formData.analysis?.transcript_summary && (
-            <div style={transcriptBox}>
-              "I heard you mention: {formData.analysis.transcript_summary}"
-            </div>
-          )}
-
-          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6, color: '#1D1D1F' }}>
+          <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 10, color: '#1D1D1F' }}>
             {formData.analysis?.archetype}
           </div>
           
-          <div style={{ fontSize: 14, color: '#48484A', lineHeight: 1.5 }}>
-            {formData.analysis?.shadow_analysis}
+          <div style={{ fontSize: 14, color: '#48484A', lineHeight: 1.6 }}>
+            {/* We tonen GEEN shadow_analysis meer aan de trader, alleen de hulp-focus */}
+            Your profile has been successfully mapped. TCT is now preparing your personalized roadmap to bridge the gap between your current challenges and institutional consistency. 
+            <br/><br/>
+            <strong>Focus:</strong> Behavioral optimization and capital protection.
           </div>
         </div>
 
-        <p style={{ color: '#86868B', fontSize: 14, marginTop: 20 }}>
-          Thank you, <strong>{formData.name}</strong>. Your profile is sent to the Command Center. 
-          Check <strong>{formData.email}</strong> soon for access.
+        <p style={{ color: '#86868B', fontSize: 13, marginBottom: 20, padding: '0 20px', lineHeight: 1.5 }}>
+            Your data is now being audited by the Architect. You will receive a notification once your access to the <strong>Propfirm Portfolio Operating System</strong> is activated.
         </p>
         
-        <button onClick={onCancel} style={primaryBtn}>{translations.en.close}</button>
+        <button 
+          onClick={onCancel} 
+          style={{...primaryBtn, marginTop: 0}}
+        >
+          Return to Portal
+        </button>
       </div>
     </div>
   );
@@ -220,28 +264,9 @@ export default function IntakeChat({ onCancel }) {
   );
 }
 
-// EXTRA STYLES VOOR HET RESULTAAT
-const resultCard = {
-  background: '#FFFFFF',
-  padding: '24px',
-  borderRadius: '28px',
-  margin: '24px 0',
-  textAlign: 'left',
-  border: '1px solid #E5E5EA',
-  boxShadow: '0 10px 25px rgba(0,0,0,0.05)'
-};
-
-const transcriptBox = {
-  fontSize: '13px',
-  color: '#8E8E93',
-  fontStyle: 'italic',
-  marginBottom: '16px',
-  paddingBottom: '16px',
-  borderBottom: '1px solid #F2F2F7',
-  lineHeight: 1.4
-};
-
-// BESTAANDE STYLES
+// STYLES (Ongewijzigd)
+const resultCard = { background: '#FFFFFF', padding: '24px', borderRadius: '28px', margin: '24px 0', textAlign: 'left', border: '1px solid #E5E5EA', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' };
+const transcriptBox = { fontSize: '13px', color: '#8E8E93', fontStyle: 'italic', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #F2F2F7', lineHeight: 1.4 };
 const fullScreenOverlay = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(255,255,255,0.98)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
 const chatContainer = { width: '100%', maxWidth: 500, height: '85vh', background: 'white', borderRadius: 32, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #F2F2F7' };
 const chatHeader = { padding: '20px 25px', borderBottom: '1px solid #F2F2F7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };

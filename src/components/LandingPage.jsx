@@ -1,57 +1,116 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../lib/firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
     ArrowsClockwise, ShieldCheck, Database, 
     CaretRight, XCircle, CheckCircle 
 } from '@phosphor-icons/react';
 
-// Importeer het losse component
 import IntakeChat from './IntakeChat'; 
 
-export default function LandingPage() {
+export default function LandingPage({ onSignIn }) {
     const navigate = useNavigate();
     const [appState, setAppState] = useState('loading'); 
-    const BETA_MODE = true; // Handmatige switch: true = Whitelist, false = Public Sign Up
+    const BETA_MODE = true; 
 
     useEffect(() => {
-        const unsub = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                const userDoc = await getDoc(doc(db, "users", user.uid));
-                if (userDoc.exists() && userDoc.data().isApproved) navigate('/dashboard');
-                else setAppState('pending');
-            } else {
-                setAppState('landing');
-            }
-        });
-        return () => unsub();
-    }, [navigate]);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            const data = userDoc.data();
 
-    const handleGoogleLogin = async () => {
-        const provider = new GoogleAuthProvider();
-        try {
-            const result = await signInWithPopup(auth, provider);
-            const userDoc = await getDoc(doc(db, "users", result.user.uid));
-            if (userDoc.exists() && userDoc.data().isApproved) navigate('/dashboard');
-            else setAppState('pending');
-        } catch (err) { console.error(err); }
+            if (userDoc.exists() && (data.isApproved || data.role === 'admin')) {
+                // Gebruiker is goedgekeurd -> Dashboard
+                navigate('/dashboard');
+            } else if (userDoc.exists() && data.hasCompletedIntake) {
+                // Ingelogd + Intake gedaan -> Toon de Pending Audit overlay
+                setAppState('pending');
+            } else {
+                // Ingelogd + GEEN intake gedaan -> Open de chat!
+                setAppState('intake');
+            }
+        } else {
+            // Niet ingelogd -> Toon landing page
+            setAppState('landing');
+        }
+    });
+    return () => unsub();
+}, [navigate]);
+
+    useEffect(() => {
+        const handleTrigger = () => {
+            console.log("Sign-in trigger ontvangen van IntakeChat");
+            onSignIn(); 
+        };
+        window.addEventListener('triggerSignIn', handleTrigger);
+        return () => window.removeEventListener('triggerSignIn', handleTrigger);
+    }, [onSignIn]);
+
+    const handleLoginClick = () => {
+        onSignIn(); 
     };
 
     if (appState === 'loading') return <div style={styles.fullCenter}><ArrowsClockwise size={32} className="spinner" /></div>;
 
+    // --- START VERVANGEN SECTIE: PENDING STATE ---
     if (appState === 'pending') {
         return (
-            <div style={styles.fullCenter}>
-                <div className="bento-card" style={{padding: 40, textAlign: 'center', maxWidth: 450, background: 'white'}}>
-                    <h2 style={{fontWeight: 900, marginTop: 20}}>Shadow Analysis in Progress</h2>
-                    <p style={{color: '#86868B', lineHeight: 1.6}}>TCT is currently auditing your intake data. Access to the Propfolio Cockpit is granted based on professional readiness.</p>
-                    <button onClick={() => auth.signOut()} style={{marginTop: 30, color: '#FF3B30', background: 'none', border: 'none', fontWeight: 700, cursor: 'pointer'}}>Cancel & Logout</button>
+            <div style={{ ...styles.fullCenter, backgroundColor: '#000', color: '#fff', flexDirection: 'column', textAlign: 'center', padding: '20px' }}>
+                {/* Background Decor */}
+                <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(0,122,255,0.15) 0%, rgba(0,0,0,0) 70%)', filter: 'blur(40px)', zIndex: 0 }}></div>
+
+                <div style={{ zIndex: 1, maxWidth: '500px' }}>
+                    <div className="audit-container" style={{ marginBottom: '40px' }}>
+                        <div className="pulse-icon" style={{ width: 100, height: 100, borderRadius: '30%', background: 'rgba(29, 29, 31, 0.8)', border: '1px solid rgba(0, 122, 255, 0.3)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', position: 'relative' }}>
+                            <ShieldCheck size={48} weight="duotone" color="#007AFF" />
+                            <div style={{ position: 'absolute', inset: '-2px', borderRadius: '30%', border: '1px solid #007AFF', animation: 'ping 2s cubic-bezier(0, 0, 0.2, 1) infinite' }}></div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'inline-block', padding: '6px 12px', background: 'rgba(0,122,255,0.1)', borderRadius: '20px', border: '1px solid rgba(0,122,255,0.2)', marginBottom: '20px' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 900, color: '#007AFF', letterSpacing: '2px', textTransform: 'uppercase' }}>System Audit in Progress</span>
+                    </div>
+
+                    <h2 style={{ fontSize: '32px', fontWeight: 900, letterSpacing: '-1px', margin: '0 0 15px 0' }}>Institutional Access Pending</h2>
+                    
+                    <p style={{ color: '#86868B', lineHeight: 1.6, fontSize: '16px', margin: '0 auto 40px auto' }}>
+                        The Conscious Trader is currently auditing your intake parameters. We verify every pilot to ensure the integrity of the Propfolio ecosystem.
+                    </p>
+
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '20px', padding: '20px', textAlign: 'left', marginBottom: '40px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00ff00', boxShadow: '0 0 10px #00ff00' }}></div>
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>Intake Data Received</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#007AFF', animation: 'blink 1s infinite' }}></div>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: '#86868B' }}>Architect Verification Pending...</span>
+                        </div>
+                    </div>
+
+                    <button 
+                        onClick={() => auth.signOut()} 
+                        style={{ background: 'transparent', color: '#86868B', border: 'none', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                        Sign out and return later
+                    </button>
                 </div>
+
+                <style>{`
+                    @keyframes ping {
+                        75%, 100% { transform: scale(1.4); opacity: 0; }
+                    }
+                    @keyframes blink {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.3; }
+                    }
+                `}</style>
             </div>
         );
     }
+    // --- EINDE VERVANGEN SECTIE ---
 
     if (appState === 'intake') {
         return <IntakeChat onCancel={() => setAppState('landing')} />;
@@ -59,30 +118,33 @@ export default function LandingPage() {
 
     return (
         <div style={styles.landingWrapper}>
-            {/* STICKY NAV */}
             <nav style={styles.nav}>
                 <div style={{fontWeight: 900, fontSize: 20, letterSpacing: -1}}>PROPFOLIO</div>
-                <button onClick={handleGoogleLogin} style={styles.btnSecondary}>CEO Login</button>
+                <button onClick={handleLoginClick} style={styles.btnSecondary}>CEO Login</button>
             </nav>
 
-            {/* HERO SECTIE */}
             <div style={styles.hero}>
                 <div style={styles.badge}>PPOS — PROPFIRM PORTFOLIO OPERATING SYSTEM</div>
                 <h1 style={styles.h1}>Trade like a business.<br/><span style={{color: '#007AFF'}}>Not a hobby.</span></h1>
                 <p style={styles.p}>Stop managing millions in messy spreadsheets. Scale your portfolio with TCT-powered emotional intelligence and institutional structure.</p>
                 
                 {BETA_MODE ? (
-                    <button onClick={() => setAppState('intake')} style={styles.btnMain}>
+                    <button 
+                        onClick={() => {
+                            // Stap 1: Trigger eerst de login
+                            onSignIn(); 
+                        }} 
+                        style={styles.btnMain}
+                    >
                         Apply for Whitelist <CaretRight weight="bold" />
                     </button>
                 ) : (
-                    <button onClick={handleGoogleLogin} style={styles.btnMain}>
+                    <button onClick={handleLoginClick} style={styles.btnMain}>
                         Get Started Now <CaretRight weight="bold" />
                     </button>
                 )}
             </div>
 
-            {/* FEATURE GRID: DE 3 PUNTEN */}
             <div style={styles.featureGrid}>
                 <div className="bento-card" style={styles.featureCard}>
                     <div style={styles.iconCircle}><CheckCircle size={24} weight="fill" /></div>
