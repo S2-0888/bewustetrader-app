@@ -80,6 +80,12 @@ export default function Admin() {
     const unsubFeedback = onSnapshot(query(collection(db, "beta_feedback"), orderBy("updatedAt", "desc")), (snap) => {
       setFeedbackItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
+    useEffect(() => {
+  if (selectedMessage) {
+    const updated = feedbackItems.find(i => i.id === selectedMessage.id);
+    if (updated) setSelectedMessage(updated);
+  }
+}, [feedbackItems]);
 
     // 6. Listen for Whitelist Intakes (TOEGEVOEGD)
     const unsubWhitelist = onSnapshot(query(collection(db, "whitelist_intakes"), orderBy("createdAt", "desc")), (snap) => {
@@ -100,6 +106,7 @@ export default function Admin() {
       const userRef = doc(db, "users", userId);
       await updateDoc(userRef, {
         isApproved: true,
+        hasCompletedIntake: true, // Zorg dat ze niet terug in de chat komen
         status: 'approved',
         subscriptionStatus: 'active',
         // Directe proefperiode van 30 dagen toekennen
@@ -383,103 +390,169 @@ Team The Conscious Trader`;
       )}
 
       {activeTab === 'whitelist' && (
-        <div style={{ display: 'grid', gap: 30 }}>
-          <div>
-            <h3 style={{ fontSize: 18, fontWeight: 900, marginBottom: 15 }}>Pending Applications ({whitelistIntakes.filter(i => i.status === 'pending').length})</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20 }}>
-              {whitelistIntakes.filter(i => i.status === 'pending').map(intake => (
-                <div key={intake.id} style={{ background: 'white', padding: 25, borderRadius: 24, border: '1px solid #E5E5EA', boxShadow: '0 10px 30px rgba(0,0,0,0.02)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-                    <div>
-                      <div style={{ fontWeight: 900, fontSize: 18 }}>{intake.name}</div>
-                      <div style={{ fontSize: 12, color: '#007AFF', fontWeight: 700 }}>{intake.email}</div>
-                    </div>
-                    <div style={{ background: '#007AFF10', color: '#007AFF', padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 800 }}>
-                      {intake.analysis?.archetype}
-                    </div>
-                  </div>
+  <div style={{ display: 'grid', gap: 40 }}>
+    
+    {/* SECTIE 1: PENDING APPLICATIONS (GLASS & NEUMORPHIC) */}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#FF9F0A', boxShadow: '0 0 10px #FF9F0A' }}></div>
+        <h3 style={{ fontSize: 20, fontWeight: 900, color: '#1D1D1F', margin: 0 }}>
+          Pending Audits ({whitelistIntakes.filter(i => i.status === 'pending').length})
+        </h3>
+      </div>
 
-                  <div style={{ background: '#F2F2F7', padding: 20, borderRadius: 16, marginBottom: 15 }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: '#8E8E93', marginBottom: 8 }}>TCT SHADOW ANALYSIS</div>
-                    <div style={{ fontSize: 14, lineHeight: 1.5, color: '#1D1D1F' }}>{intake.analysis?.shadow_analysis}</div>
-                  </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 30 }}>
+        {whitelistIntakes.filter(i => i.status === 'pending').map(intake => (
+          <div key={intake.id} style={{
+            background: 'rgba(255, 255, 255, 0.6)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderRadius: '35px',
+            border: '1px solid rgba(255, 255, 255, 0.4)',
+            padding: '30px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.04)',
+            position: 'relative'
+          }}>
+            {/* User Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '24px', color: '#1D1D1F', letterSpacing: '-0.8px' }}>{intake.name}</div>
+                <div style={{ fontSize: '13px', color: '#007AFF', fontWeight: 700, opacity: 0.8 }}>{intake.email}</div>
+              </div>
+              <span style={{
+                background: 'linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(0, 122, 255, 0.05))',
+                padding: '8px 16px',
+                borderRadius: '14px',
+                fontSize: '11px',
+                fontWeight: 800,
+                color: '#007AFF',
+                border: '1px solid rgba(0, 122, 255, 0.1)',
+                textTransform: 'uppercase'
+              }}>
+                {intake.analysis?.archetype}
+              </span>
+            </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 25, background: '#F9F9FB', padding: '12px', borderRadius: 12 }}>
-                    <div style={{ textAlign: 'center', borderRight: '1px solid #E5E5EA' }}>
-                      <div style={{ fontSize: 9, fontWeight: 800, color: '#8E8E93' }}>EXP</div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{intake.experience}</div>
-                    </div>
-                    <div style={{ textAlign: 'center', borderRight: '1px solid #E5E5EA' }}>
-                      <div style={{ fontSize: 9, fontWeight: 800, color: '#8E8E93' }}>ACCOUNTS</div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{intake.accounts}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 9, fontWeight: 800, color: '#8E8E93' }}>SCORE</div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#30D158' }}>{intake.analysis?.readiness_score}/100</div>
-                    </div>
-                  </div>
+            {/* Shadow Audit Box (Inset Depth) */}
+            <div style={{
+              background: 'rgba(0, 0, 0, 0.03)',
+              padding: '20px',
+              borderRadius: '24px',
+              marginBottom: '25px',
+              boxShadow: 'inset 2px 2px 8px rgba(0,0,0,0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.5)'
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 900, color: '#8E8E93', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1.5px' }}>
+                Institutional Shadow Audit
+              </div>
+              <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#1D1D1F', fontWeight: 500, margin: 0, opacity: 0.9 }}>
+                {intake.analysis?.shadow_analysis}
+              </p>
+            </div>
 
-                  <button 
-                    onClick={() => approveTrader(intake)}
-                    style={{ width: '100%', padding: '16px', background: '#1D1D1F', color: 'white', border: 'none', borderRadius: 14, fontWeight: 800, cursor: 'pointer' }}
-                  >
-                    Approve & Copy Invitation
-                  </button>
+            {/* Metrics (Neumorphic Wells) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '30px' }}>
+              {[
+                { label: 'EXPERIENCE', value: intake.experience },
+                { label: 'INVENTORY', value: intake.accounts },
+                { label: 'READINESS', value: `${intake.analysis?.readiness_score}%`, highlight: true }
+              ].map((m, i) => (
+                <div key={i} style={{
+                  background: '#F2F2F7',
+                  padding: '16px 10px',
+                  borderRadius: '20px',
+                  textAlign: 'center',
+                  boxShadow: 'inset 4px 4px 8px #d1d1d6, inset -4px -4px 8px #ffffff',
+                }}>
+                  <div style={{ fontSize: '8px', fontWeight: 800, color: '#8E8E93', marginBottom: '6px', letterSpacing: '0.5px' }}>{m.label}</div>
+                  <div style={{ 
+                    fontSize: '15px', 
+                    fontWeight: 900, 
+                    color: m.highlight ? (intake.analysis?.readiness_score > 75 ? '#30D158' : '#FF9F0A') : '#1D1D1F' 
+                  }}>
+                    {m.value}
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
 
-          <div style={{ background: 'white', borderRadius: 24, border: '1px solid #E5E5EA', overflow: 'hidden' }}>
-            <div style={{ padding: '15px 25px', background: '#F9F9FB', borderBottom: '1px solid #E5E5EA' }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 900, color: '#8E8E93' }}>Recently Approved (Ready to Mail)</h3>
-            </div>
-            <div style={{ padding: '0 25px' }}>
-              {whitelistIntakes
-                .filter(i => i.status === 'approved')
-                .filter(i => !users.some(u => u.email === i.email))
-                .map(intake => (
-                  <div key={intake.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 0', borderBottom: '1px solid #F2F2F7' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{intake.name}</div>
-                      <div style={{ fontSize: 12, color: '#8E8E93' }}>{intake.email} • {intake.approvedAs?.toUpperCase()}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <button 
-                        onClick={() => {
-                          const isBeta = intake.approvedAs === 'beta_tester';
-                          const msg = isBeta ? 
-                            `Hi ${intake.name},\n\nCongratulations! You have been selected as an exclusive Beta Tester for The Conscious Trader. \n\nOur AI analyzed your intake and identified you as: ${intake.analysis?.archetype}. We believe your experience level (${intake.experience}) makes you a perfect fit to help us refine the platform.\n\nAs a Beta Tester, you have early access to all features. We would love to hear your feedback as you explore your Shadow Profile.\n\nStart your beta journey here: ${window.location.origin}\n\nWelcome to the elite circle,\nTeam The Conscious Trader` :
-                            `Hi ${intake.name},\n\nI have reviewed your voice reflection and analyzed your profile. The Conscious Trader AI has identified your archetype as: ${intake.analysis?.archetype || 'The Professional Trader'}.\n\nYour account has been officially activated. You now have full access to the Command Center and your personalized Shadow Profile.\n\nLog in here: ${window.location.origin}\n\nSee you in the cockpit!\nTeam The Conscious Trader`;
-                          
-                          navigator.clipboard.writeText(msg);
-                          alert('Full Invitation copied to clipboard!');
-                        }}
-                        style={{ background: '#1D1D1F', color: 'white', border: 'none', padding: '8px 15px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        Copy Invitation
-                      </button>
-                      
-                      <button 
-                        onClick={() => { navigator.clipboard.writeText(intake.email); alert('Email address copied!'); }} 
-                        style={{ background: '#F2F2F7', border: 'none', padding: '8px 15px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        Copy Email Only
-                      </button>
-
-                      <button onClick={() => deleteDoc(doc(db, "whitelist_intakes", intake.id))} style={{ color: '#FF3B30', background: 'none', border: 'none', cursor: 'pointer' }}>
-                        <Trash size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              {whitelistIntakes.filter(i => i.status === 'approved' && !users.some(u => u.email === i.email)).length === 0 && (
-                  <div style={{ padding: 20, textAlign: 'center', color: '#8E8E93', fontSize: 13 }}>No pending invitations. All approved traders have joined.</div>
-              )}
-            </div>
+            {/* Initialize Button */}
+            <button 
+              onClick={() => approveTrader(intake)}
+              style={{
+                width: '100%',
+                padding: '20px',
+                background: 'linear-gradient(145deg, #1d1d1f, #2c2c2e)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '22px',
+                fontWeight: 800,
+                fontSize: '15px',
+                cursor: 'pointer',
+                boxShadow: '0 10px 20px rgba(0,0,0,0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                transition: 'transform 0.2s ease'
+              }}
+            >
+              Initialize System Access <PaperPlaneTilt size={20} weight="bold" />
+            </button>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
+    </div>
+
+    {/* SECTIE 2: RECENTLY APPROVED (STREEKVRIJ & MODERN) */}
+    <div style={{ 
+      background: 'rgba(255, 255, 255, 0.4)', 
+      borderRadius: '35px', 
+      border: '1px solid rgba(255, 255, 255, 0.5)', 
+      padding: '30px',
+      backdropFilter: 'blur(10px)'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#1D1D1F', letterSpacing: '-0.5px' }}>Approved Registry</h3>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#8E8E93' }}>READY FOR DISPATCH</div>
+      </div>
+      
+      <div style={{ display: 'grid', gap: 12 }}>
+        {whitelistIntakes
+          .filter(i => i.status === 'approved')
+          .filter(i => !users.some(u => u.email === i.email))
+          .map(intake => (
+            <div key={intake.id} style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              padding: '18px 25px', 
+              background: 'white', 
+              borderRadius: '20px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
+              border: '1px solid #F2F2F7'
+            }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: '#1D1D1F' }}>{intake.name}</div>
+                <div style={{ fontSize: 12, color: '#8E8E93', fontWeight: 500 }}>{intake.email} • <span style={{color: '#007AFF'}}>{intake.approvedAs?.toUpperCase()}</span></div>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button 
+                  onClick={() => { /* ... invitation logica ... */ }}
+                  style={{ background: '#F2F2F7', color: '#1D1D1F', border: 'none', padding: '10px 18px', borderRadius: '12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Copy Mail
+                </button>
+                <button onClick={() => deleteDoc(doc(db, "whitelist_intakes", intake.id))} style={{ color: '#FF3B30', background: 'rgba(255, 59, 48, 0.05)', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer' }}>
+                  <Trash size={18} />
+                </button>
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  </div>
+)}
 
       {activeTab === 'intelligence' && (
         <div className="bento-card" style={{ padding: 0, overflow: 'hidden', background: 'white' }}>
@@ -578,7 +651,16 @@ Team The Conscious Trader`;
                   <div style={{ textAlign: 'center', padding: 40, color: '#8E8E93' }}>No messages.</div>
                 ) : (
                   filteredInbox.map(item => (
-                    <div key={item.id} style={{ padding: '15px 20px', borderBottom: '1px solid #F5F5F7', cursor: 'pointer', background: selectedMessage?.id === item.id ? 'rgba(0,122,255,0.05)' : 'transparent', position: 'relative' }}>
+                      <div 
+                        key={item.id} 
+                        onClick={() => setSelectedMessage(item)} // VOEG DEZE REGEL TOE
+                        style={{ 
+                          padding: '15px 20px', 
+                          borderBottom: '1px solid #F5F5F7', 
+                          cursor: 'pointer', 
+                          background: selectedMessage?.id === item.id ? 'rgba(0,122,255,0.05)' : 'transparent', 
+                          position: 'relative' 
+                        }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 800, color: '#1D1D1F' }}>{item.userEmail}</span>
                         <span style={{ fontSize: 10, color: '#8E8E93' }}>{item.updatedAt?.toDate().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' })}</span>
