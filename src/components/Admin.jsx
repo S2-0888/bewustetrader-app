@@ -80,14 +80,8 @@ export default function Admin() {
     const unsubFeedback = onSnapshot(query(collection(db, "beta_feedback"), orderBy("updatedAt", "desc")), (snap) => {
       setFeedbackItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    useEffect(() => {
-  if (selectedMessage) {
-    const updated = feedbackItems.find(i => i.id === selectedMessage.id);
-    if (updated) setSelectedMessage(updated);
-  }
-}, [feedbackItems]);
 
-    // 6. Listen for Whitelist Intakes (TOEGEVOEGD)
+    // 6. Listen for Whitelist Intakes
     const unsubWhitelist = onSnapshot(query(collection(db, "whitelist_intakes"), orderBy("createdAt", "desc")), (snap) => {
         setWhitelistIntakes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -96,7 +90,15 @@ export default function Admin() {
         unsubUsers(); unsubBroadcast(); unsubSettings(); 
         unsubLogs(); unsubFeedback(); unsubWhitelist(); 
     };
-  }, []);
+  }, []); // Einde van de hoofd-hook
+
+  // --- DEZE HOOK MOET HIER LOS STAAN (rond regel 114) ---
+  useEffect(() => {
+    if (selectedMessage) {
+      const updated = feedbackItems.find(i => i.id === selectedMessage.id);
+      if (updated) setSelectedMessage(updated);
+    }
+  }, [feedbackItems]);
 
   // --- ACTIONS: DIRECT ACTIVATION FROM REGISTRY ---
   const activateTraderDirectly = async (userId) => {
