@@ -5,7 +5,7 @@ import {
   Trash, X, Wallet, Gear,
   Smiley, SmileySad, SmileyMeh, 
   SmileyNervous, Plus, PlusCircle, Blueprint, ArrowSquareOut, CaretDown, Lightning, Scales, Info,
-  Microphone, StopCircle, Waves, Sparkle 
+  Microphone, StopCircle, Waves, Sparkle, CheckCircle // <--- CHECK 1: Toegevoegd voor checklist icons
 } from '@phosphor-icons/react';
 import AdvancedJournalForm from './AdvancedJournalForm';
 
@@ -51,36 +51,25 @@ function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeCont
     const formData = new FormData();
     formData.append('audio', blob);
     
-    // --- COMPLETE CONTEXT INJECTIE ---
-    // We sturen NU ALLES mee voor de perfecte analyse
     if (tradeContext) {
         const contextData = {
-            // Identiteit van de trade
             pair: tradeContext.pair || "Unknown",
             direction: tradeContext.direction || "Long",
-            strategy: tradeContext.strategy || "Unknown", // NIEUW
-            
-            // Financiële impact
-            risk: tradeContext.risk || 0, // NIEUW (Essentieel voor risk management check)
+            strategy: tradeContext.strategy || "Unknown",
+            risk: tradeContext.risk || 0,
             pnl: tradeContext.pnl || 0,
             commission: tradeContext.commission || 0,
-
-            // Psychologie (wat de user zelf al heeft aangevinkt)
             mistakes: tradeContext.mistake || [],
             emotion: tradeContext.emotion || "Neutral",
-            
-            // Technische precisie (De "Röntgenogen")
             entryPrice: tradeContext.entryPrice,
             exitPrice: tradeContext.exitPrice, 
             slPrice: tradeContext.slPrice, 
             tpPrice: tradeContext.tpPrice, 
-            maePrice: tradeContext.maePrice, // Pijn punt
-            mfePrice: tradeContext.mfePrice  // Gemiste winst
+            maePrice: tradeContext.maePrice, 
+            mfePrice: tradeContext.mfePrice
         };
-        // We maken er tekst van zodat de backend het kan lezen
         formData.append('tradeContext', JSON.stringify(contextData));
     }
-    // ---------------------------------
 
     try {
       const response = await fetch('https://analyzevoicetrade-zxpdz2eyba-ew.a.run.app', { 
@@ -91,21 +80,14 @@ function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeCont
 
       if (data.journal_entry) {
         onTranscriptionComplete(data.journal_entry);
-
         if (onFeedbackReceived && data.direct_feedback) {
-           // We sturen nu een object mee met alle shadow data
            onFeedbackReceived(data.direct_feedback, {
                score: data.score,
                emotion: data.emotion_tag,
                shadow: data.shadow_analysis
            });
         }
-
-        console.log("--- TCT SHADOW MONITOR ---");
-        console.log("Score:", data.score);
-        console.log("Emotion:", data.emotion_tag);
       }
-
     } catch (error) {
       console.error("AI Voice Error:", error);
       alert("AI Coach kon de audio niet verwerken.");
@@ -175,17 +157,27 @@ export default function TradeLab() {
   const [editingTrade, setEditingTrade] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [tctFeedback, setTctFeedback] = useState(''); 
+  const [showRules, setShowRules] = useState(() => localStorage.getItem('tct_show_rules') === 'true');
+  const [activeProtocols, setActiveProtocols] = useState([]);
 
-  // --- HIERONDER IS HET NIEUWE STUKJE GEHEUGEN ---
-  const [showRules, setShowRules] = useState(() => {
-    const saved = localStorage.getItem('tct_show_rules');
-    return saved === 'true'; 
-  });
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    // Listen naar het User Profile voor actieve contracten
+    const unsubUser = onSnapshot(doc(db, "users", user.uid), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setActiveProtocols(data.activeProtocols || []);
+      }
+    });
+
+    return () => unsubUser();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('tct_show_rules', showRules);
   }, [showRules]);
-  // ----------------------------------------------
 
   const [closingTrade, setClosingTrade] = useState(null); 
   const [closeExitPrice, setCloseExitPrice] = useState(''); 
@@ -225,14 +217,8 @@ export default function TradeLab() {
     window.addEventListener('resize', handleResize);
     const user = auth.currentUser;
     if (!user) return;
-    onSnapshot(query(collection(db, "users", user.uid, "trades")), (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sortedList = list.sort((a, b) => {
-        if (a.status === 'OPEN' && b.status !== 'OPEN') return -1;
-        if (a.status !== 'OPEN' && b.status === 'OPEN') return 1;
-        return new Date(b.date) - new Date(a.date);
-      });
-      setTrades(sortedList);
+    onSnapshot(query(collection(db, "users", user.uid, "trades"), orderBy("date", "desc")), (snap) => {
+      setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     onSnapshot(query(collection(db, "users", user.uid, "accounts")), (snap) => {
       setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); 
@@ -243,45 +229,50 @@ export default function TradeLab() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // --- AUTOSAVE LOGICA ---
   useEffect(() => {
-    // Alleen uitvoeren als we aan het bewerken zijn en er een ID is
     if (!editingTrade || !editingTrade.id) return;
-
-    // Stel een timer in van 2 seconden
     const autoSaveTimer = setTimeout(async () => {
-        console.log("Autosaving trade...", editingTrade.id);
         const net = Number(editingTrade.grossPnl || 0) - Math.abs(Number(editingTrade.commission || 0));
         await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
             ...editingTrade, pnl: net
         });
-    }, 2000); // 2000ms = 2 seconden wachten na laatste wijziging
-
-    // Als de gebruiker binnen 2 sec weer typt, annuleer de vorige timer (debounce)
+    }, 2000);
     return () => clearTimeout(autoSaveTimer);
   }, [editingTrade]); 
-  // -----------------------
 
   const handleSimpleOpen = async (e) => {
     e.preventDefault();
     const selectedFormAccount = accounts.find(a => a.id === form.accountId);
     if (!selectedFormAccount) return;
+
+    // 1. Definieer de score en het risico bedrag
+    const score = form.isAligned ? 100 : 0; 
     const riskAmount = Math.abs(Number(form.risk));
-    const score = Math.round(((form.checkedRules?.length || 0) / (config.rules?.length || 1)) * 100);
-    await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
     
+    // 2. Bewuste keuze bij overtreding
+    if (!form.isAligned) {
+        const confirmViolation = confirm("Let op: Deze trade voldoet NIET aan je protocollen. Je discipline score wordt 0. Doorgaan?");
+        if (!confirmViolation) return;
+    }
+
     await addDoc(collection(db, "users", auth.currentUser.uid, "trades"), {
       ...form, 
       entryPrice: form.entryPrice ? Number(form.entryPrice) : null,
       slPrice: form.slPrice ? Number(form.slPrice) : null,
-      risk: riskAmount, status: 'OPEN', pnl: 0, commission: 0,
-      isAdvanced: false, createdAt: new Date(), 
+      risk: riskAmount, 
+      status: 'OPEN', 
+      pnl: 0, 
+      commission: 0,
+      isAdvanced: false, 
+      createdAt: new Date(), 
       accountName: selectedFormAccount.firm, 
       accountNumber: selectedFormAccount.accountNumber, 
-      disciplineScore: score
+      disciplineScore: score 
     });
+    
+    // Reset formulier
     setForm(prev => ({ ...prev, pair: '', risk: '', entryPrice: '', slPrice: '', tpPrice: '', isAligned: false, checkedRules: [] }));
-  };
+};
 
   const executeCloseTrade = async (e) => {
     e.preventDefault();
@@ -318,7 +309,6 @@ export default function TradeLab() {
   return (
     <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
-      {/* HEADER */}
       <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div>
             <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1>
@@ -379,8 +369,27 @@ export default function TradeLab() {
                         </div>
                       )}
 
-                      <button type="submit" className="btn-primary" style={{ width:'100%', height: 44, marginTop: 10, borderRadius: 14 }}>OPEN POSITION</button>
-                  </div>
+                      <button 
+                        type="submit" 
+                        className="btn-primary" 
+                        style={{ 
+                            width: '100%', 
+                            height: 44, 
+                            marginTop: 10, 
+                            borderRadius: 14,
+                            background: form.isAligned ? '#1D1D1F' : '#FF3B30', // Zwart bij OK, Rood bij overtreding
+                            color: 'white',
+                            cursor: 'pointer',
+                            border: 'none',
+                            fontWeight: 800,
+                            transition: '0.3s ease'
+                        }}
+                    >
+                        {form.isAligned 
+                        ? 'OPEN POSITION' 
+                        : 'OPEN NON-COMPLIANT POSITION'} 
+                    </button>
+                    </div>
 
                   {!isMobile && (
                     <div style={{ background: '#F9F9F9', borderRadius: 16, padding: 20 }}>
@@ -391,17 +400,37 @@ export default function TradeLab() {
                             <CaretDown size={18} style={{ cursor:'pointer', transform: showRules ? 'rotate(180deg)' : 'none', transition: '0.2s' }} onClick={() => setShowRules(!showRules)} />
                         </div>
                         {showRules && (
-                            <div style={{ display:'grid', gap:8, background: 'white', padding: 10, borderRadius: 10 }}>
-                                {(config.rules || []).map(r => (
-                                    <label key={r} style={{ fontSize:11, display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
-                                        <input type="checkbox" checked={form.checkedRules.includes(r)} onChange={() => {
-                                            const next = form.checkedRules.includes(r) ? form.checkedRules.filter(x => x !== r) : [...form.checkedRules, r];
-                                            setForm({...form, checkedRules: next, isAligned: next.length === (config.rules?.length || 0)});
-                                        }} /> {r}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
+    <div style={{ display:'grid', gap:8, background: 'white', padding: 12, borderRadius: 10, marginTop: 10 }}>
+        <p style={{ fontSize: 9, fontWeight: 900, color: '#8E8E93', textTransform: 'uppercase', marginBottom: 5 }}>
+            Active Protocol Checklist
+        </p>
+        
+        {/* De Standaard Regels */}
+        {(config.rules || []).map(r => (
+            <div key={r} style={{ fontSize:11, display:'flex', alignItems:'center', gap:8, color: form.isAligned ? '#30D158' : '#1C1C1E', transition: '0.2s' }}>
+                <CheckCircle size={14} weight={form.isAligned ? "fill" : "regular"} /> 
+                <span style={{ opacity: form.isAligned ? 1 : 0.7 }}>{r}</span>
+            </div>
+        ))}
+
+        {/* DE ADAPTIVE RULES (HET CONTRACT) */}
+        {activeProtocols.map((p, idx) => (
+            <div key={`protocol-rule-${idx}`} style={{ 
+                fontSize:11, display:'flex', alignItems:'center', gap:8, 
+                color: form.isAligned ? '#007AFF' : '#FF3B30', 
+                fontWeight: 700,
+                padding: '4px 8px',
+                background: form.isAligned ? 'rgba(0, 122, 255, 0.05)' : 'rgba(255, 59, 48, 0.05)',
+                borderRadius: '6px',
+                borderLeft: `3px solid ${form.isAligned ? '#007AFF' : '#FF3B30'}`,
+                marginTop: '4px'
+            }}>
+                <ShieldCheck size={14} weight="fill" /> 
+                <span>{p.text}</span>
+            </div>
+        ))}
+        </div>
+        )}
                     </div>
                   )}
               </div>
@@ -424,7 +453,7 @@ export default function TradeLab() {
                 key={trade.id} 
                 className="bento-card" 
                 onClick={() => openReviewModal(trade)}
-                style={{ padding: '20px', borderLeft: `4px solid ${trade.status === 'OPEN' ? '#007AFF' : '#86868B'}` }}
+                style={{ padding: '20px', borderLeft: `4px solid ${trade.status === 'OPEN' ? '#007AFF' : (trade.disciplineScore === 100 ? '#30D158' : '#FF3B30')}` }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -494,6 +523,7 @@ export default function TradeLab() {
             </div>
         </div>
       )}
+      
 
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: 20 }}>
@@ -582,7 +612,6 @@ export default function TradeLab() {
                         <div>
                             <div className="label-xs" style={{color:'#FF9F0A', marginBottom: 15 }}>BEHAVIORAL REVIEW</div>
                             
-                            {/* TAGS (Snel invoeren) */}
                             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:20 }}>
                                 {(config.mistakes || []).map(m => (
                                     <button key={m} type="button" onClick={() => {
@@ -592,25 +621,19 @@ export default function TradeLab() {
                                 ))}
                             </div>
 
-                            {/* EMOTIES (Snel invoeren) */}
                             <div className="input-group" style={{ marginBottom: 20 }}><label className="input-label">Emotion</label>
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>
                                     {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, textAlign:'center', cursor:'pointer' }}>{em.icon}</div>)}
                                 </div>
                             </div>
 
-                            {/* VOICE INPUT (Boven de notes) - GEEFT NU TRADECONTEXT MEE */}
                             <VoiceNoteInput 
                               tradeContext={editingTrade} 
                               onTranscriptionComplete={(text) => {
-                                // Bewaar de samenvatting in notes
                                 setEditingTrade(prev => ({ ...prev, notes: text }));
                               }}
                               onFeedbackReceived={(feedback, extraData) => {
-                                  // 1. Toon de feedback in de UI
                                   setTctFeedback(feedback);
-                                  
-                                  // 2. SLA DIRECT OP in de editingTrade state
                                   setEditingTrade(prev => ({ 
                                       ...prev, 
                                       aiFeedback: feedback,
@@ -621,7 +644,6 @@ export default function TradeLab() {
                               }}
                             />
                             
-                            {/* NOTES (Resultaat van de voice) */}
                             <div className="input-group">
                                 <label className="input-label">
                                     {tctFeedback ? "AI Journal Summary (Locked)" : "Notes"}
@@ -647,6 +669,14 @@ export default function TradeLab() {
             </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes pulse-slow { 
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); } 
+          70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); } 
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } 
+        }
+      `}</style>
     </div>
   );
 }

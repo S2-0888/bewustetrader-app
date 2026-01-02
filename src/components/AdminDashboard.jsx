@@ -9,16 +9,25 @@ export default function AdminDashboard() {
   const [selectedTrader, setSelectedTrader] = useState(null);
   const [filter, setFilter] = useState('all'); // all, pending, beta_tester
 
-  // 1. LIVE DATA FEED
-  useEffect(() => {
-    const q = query(collection(db, "waitlist"), orderBy("appliedAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setTraders(data);
-      if (!selectedTrader && data.length > 0) setSelectedTrader(data[0]);
-    });
-    return () => unsubscribe();
-  }, []);
+  // 1. // 1. LIVE DATA FEED
+useEffect(() => {
+  const q = query(collection(db, "waitlist"), orderBy("appliedAt", "desc"));
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    setTraders(data);
+
+    // FIX: Zoek de actuele data van de reeds geselecteerde trader op in de nieuwe dataset
+    if (selectedTrader) {
+      const updatedSelection = data.find(t => t.id === selectedTrader.id);
+      if (updatedSelection) setSelectedTrader(updatedSelection);
+    } 
+    // Alleen auto-select als er echt nog niets gekozen is
+    else if (data.length > 0) {
+      setSelectedTrader(data[0]);
+    }
+  });
+  return () => unsubscribe();
+}, [selectedTrader?.id]); // Voeg het ID toe als dependency
 
   // 2. STATUS UPDATER (De Approve knop)
   const updateStatus = async (id, newStatus) => {

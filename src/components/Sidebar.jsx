@@ -1,6 +1,6 @@
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-import { SquaresFour, Notebook, ChartLineUp, SignOut, X } from '@phosphor-icons/react';
+import { SquaresFour, Notebook, ChartLineUp, SignOut, X, Brain } from '@phosphor-icons/react';
 
 export default function Sidebar({ view, setView, isOpen, closeMenu }) {
   
@@ -34,6 +34,12 @@ export default function Sidebar({ view, setView, isOpen, closeMenu }) {
         <button className={`nav-item ${view === 'journal' ? 'active' : ''}`} onClick={() => setView('journal')}>
           <Notebook size={20} weight={view === 'journal' ? 'fill' : 'regular'} />
           <span>Trade Lab</span>
+        </button>
+
+        {/* NIEUW: Insights / Intelligence Sectie */}
+        <button className={`nav-item ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>
+          <Brain size={20} weight={view === 'insights' ? 'fill' : 'regular'} />
+          <span>Intelligence</span>
         </button>
 
         <button className={`nav-item ${view === 'finance' ? 'active' : ''}`} onClick={() => setView('finance')}>

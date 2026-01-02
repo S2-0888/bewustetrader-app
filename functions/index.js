@@ -7,11 +7,16 @@ if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// --- HULPFUNCTIE: HAAL BUSINESS & VISION DATA OP ---
-// Haalt Accounts (Portfolio), Payouts (Finance) én Goals (Vision) op.
+const AI_MODEL = "gemini-2.5-flash";
+
+// --- HULPFUNCTIE: HAAL BUSINESS, VISION & PSYCHOLOGY DATA OP ---
 async function getBusinessContext(db, uid) {
   try {
-    // 1. Haal Accounts op (Portfolio)
+    // 1. Haal Basis Gebruiker & Psychologie op (Shadow Analysis)
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data() || {};
+
+    // 2. Haal Accounts op (Portfolio)
     const accountsSnap = await db.collection('users').doc(uid).collection('accounts').get();
     let totalInvested = 0;
     let fundedCount = 0;
@@ -22,35 +27,30 @@ async function getBusinessContext(db, uid) {
       if (a.stage === 'Funded' && a.status === 'Active') fundedCount++;
     });
 
-    // 2. Haal Payouts op (Finance)
+    // 3. Haal Payouts op (Finance)
     const payoutsSnap = await db.collection('users').doc(uid).collection('payouts').get();
     let totalPayouts = 0;
     payoutsSnap.forEach(doc => {
       totalPayouts += (Number(doc.data().convertedAmount) || 0);
     });
 
-    const netProfit = totalPayouts - totalInvested;
-    const roi = (totalInvested > 0 && totalPayouts > 0) ? ((netProfit / totalInvested) * 100).toFixed(0) : "N/A";
-
-    // 3. HAAL DOELEN OP (VISION)
+    // 4. HAAL DOELEN OP (VISION)
     const goalsSnap = await db.collection('users').doc(uid).collection('goals').get();
     const allGoals = goalsSnap.docs.map(d => d.data());
-    
-    // Zoek de 'ULTIMATE' goal (De Noordster)
     const ultimateGoal = allGoals.find(g => g.type === 'ULTIMATE');
-    
-    // Zoek het eerstvolgende actieve doel (TARGET of REWARD) dat nog niet geclaimd is
-    // We sorteren op kosten, dus de goedkoopste eerst (= volgende stap)
     const nextTarget = allGoals
         .filter(g => g.type !== 'ULTIMATE' && g.status !== 'CLAIMED')
         .sort((a, b) => Number(a.cost) - Number(b.cost))[0];
 
     return { 
-        totalInvested, totalPayouts, netProfit, roi, fundedCount,
+        totalInvested, totalPayouts, fundedCount,
+        psychology: {
+            archetype: userData.archetype || "Evaluating...",
+            shadow: userData.shadow_analysis || "No shadow data yet."
+        },
         vision: {
             ultimate: ultimateGoal ? ultimateGoal.title : "Financial Freedom",
-            nextTarget: nextTarget ? nextTarget.title : "Grow Capital",
-            nextTargetCost: nextTarget ? nextTarget.cost : 0
+            nextTarget: nextTarget ? nextTarget.title : "Grow Capital"
         }
     };
   } catch (error) {
@@ -59,35 +59,37 @@ async function getBusinessContext(db, uid) {
   }
 }
 
-// --- HET TCT BREIN (Vision Aware) ---
+// --- HET TCT BREIN (Expert & Shadow Aware) ---
 const TCT_SYSTEM_PROMPT = `
 ### SYSTEM INSTRUCTION: TCT (The Conscious Trader Coach)
 
-**IDENTITY:**
-You are TCT. You are an experienced head trader. You coach the **PERSON**, not just the P&L.
-
-**YOUR MISSION:**
-Connect "Daily Execution" to the "Long Term Vision".
-
-**HOW TO USE CONTEXT (THE PSYCHOLOGICAL LEVER):**
-You have access to the user's **ULTIMATE GOAL** and **NEXT TARGET**.
-- **If reckless:** "Stop gambling. You are pushing your [ULTIMATE GOAL] further away."
-- **If disciplined:** "Good process. This is how you unlock [NEXT TARGET]."
-- **If profitable:** "Great work. Closer to [NEXT TARGET]."
-
-**CRITICAL: LANGUAGE RULE**
-* **SCAN** the user's notes/input.
-* **IF** Dutch -> Output in **Dutch**.
-* **ELSE** -> Output in **English**.
+**IDENTITY & PHILOSOPHY:**
+You are TCT, a high-level performance coach and a trusted friend. Your mantra is: "Hard on the content, soft on the person." You are the pillar of support who understands the psychological struggle of the markets but won't let the trader drift off the path of mastery.
 
 **TONE:**
-Direct, professional, succinct. Max 3 sentences.
+Empathetic yet sharp. Be the "good friend" who is direct about mistakes but always motivating. Keep it succinct: max 3 sentences. No fluff, just high-impact coaching.
+Authentic, empathetic, and sharp. No AI-clichés (like "I understand how you feel"). Speak like a real mentor. Max 3 sentences. No fluff.
+
+**YOUR MISSION:**
+1. **The 'Why':** Connect your feedback to their "Ultimate Goal" to keep them motivated, but only when it adds real value.
+2. **Shadow Spotting:** Explicitly name patterns like FOMO, Revenge Trading, or Hesitation. Tell them: "That's your shadow talking."
+3. **Radical Candor:** If they followed the plan, praise the process (not the money). If they gambled, call it out immediately—but remind them they are better than that single mistake.
+4. **Adaptive Rules:** If patterns suggest a recurring mistake, propose a specific new trading rule (e.g., "Risk max 0.5% per trade") to protect the trader from their shadow.
+
+**LANGUAGE RULE:**
+- NEVER use standard/forced translations. 
+- Always respond in the same language as the user's notes (e.g., Dutch, English, Spanish, or German). 
+- Use natural, conversational phrasing specific to that language.
+- Avoid formal "AI-speak" or literal translations.
+- If notes are empty, default to professional English.
+
 `;
 
 // --- 1. TCT AI COACH (Dashboard Insight) ---
 exports.getTCTInsight = onCall({ 
   secrets: ["GEMINI_API_KEY"],
-  region: "europe-west1" 
+  region: "europe-west1",
+  cors: true // Noodzakelijk voor je nieuwe domein
 }, async (request) => {
   const { data, auth } = request;
   if (!auth) throw new Error('unauthenticated');
@@ -96,56 +98,40 @@ exports.getTCTInsight = onCall({
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const { recentTrades, stats } = data;
-
-  // 1. Haal context op (Nu met Ultimate Goal & Next Target)
-  const businessStats = await getBusinessContext(db, auth.uid);
-
-  // 2. Trade Context
-  const tradesWithContext = recentTrades.map(t => {
-      return {
-          pair: t.pair,
-          pnl: t.pnl,
-          mindsetScore: t.mindsetScore || "N/A",
-          coachNotes: t.shadowAnalysis || t.notes || "No text",
-          emotion: t.emotionTag || "Unknown"
-      };
-  });
-
-  const fullPrompt = `
-    ${TCT_SYSTEM_PROMPT}
-
-    **THE TRADER'S VISION:**
-    - Ultimate Goal: "${businessStats?.vision.ultimate}"
-    - Next Target: "${businessStats?.vision.nextTarget}"
-    
-    **CURRENT PERFORMANCE:**
-    - Winrate: ${stats.winrate}%
-    - Adherence Score: ${stats.adherence}%
-    - Active Funded Accounts: ${businessStats?.fundedCount || 0}
-    
-    **RECENT TRADES:**
-    ${JSON.stringify(tradesWithContext, null, 2)}
-
-    **YOUR COACHING INSIGHT:**
-    Analyze behavior. Use the VISION data to motivate or correct them.
-  `;
-
   try {
+    const { recentTrades, stats } = data;
+    
+    // 1. Haal context op via de stabiele hulpfunctie
+    const businessStats = await getBusinessContext(db, auth.uid);
+    
+    // Extra check: als businessStats faalt, gebruik defaults
+    const visionTitle = businessStats?.vision?.ultimate || "Financial Freedom";
+
+    const fullPrompt = `
+      ${TCT_SYSTEM_PROMPT}
+
+      **CONTEXT:**
+      - Trader Vision: "${visionTitle}"
+      - Winrate: ${stats.winrate}%
+      - Adherence: ${stats.adherence}%
+      
+      **RECENT TRADES:**
+      ${JSON.stringify(recentTrades)}
+
+      **COACHING TASK:**
+      Analyze the data. Be the 'hard on content, soft on person' coach. Max 3 sentences.
+    `;
+
     const result = await model.generateContent(fullPrompt);
     const tctResponseText = result.response.text();
-
-    await db.collection('logs_tct').add({
-      userId: auth.uid,
-      insight: tctResponseText,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      stats: stats 
-    });
 
     return { insight: tctResponseText };
   } catch (error) {
     console.error("TCT Error:", error.message);
-    return { insight: "Focus on your blueprint. Recalibrating..." };
+    // Door een HttpsError te gooien, trigger je de 'catch' in je frontend code.
+    // De frontend zal dan GEEN datum opslaan, waardoor de loop stopt.
+    const { HttpsError } = require("firebase-functions/v2/https");
+    throw new HttpsError('internal', 'TCT is recalibrating data.');
   }
 });
 
@@ -458,7 +444,8 @@ exports.getAiSupportReply = onCall({
 // --- 6. AI TRADER INTAKE ANALYZER (Gemini 2.5 Flash Thinking Optimized) ---
 exports.analyzeTraderIntake = onCall({
   secrets: ["GEMINI_API_KEY"],
-  region: "europe-west1"
+  region: "europe-west1" ,
+  cors: true,
 }, async (request) => {
   const { data } = request;
   const db = admin.firestore();
@@ -482,31 +469,46 @@ exports.analyzeTraderIntake = onCall({
   const { name, accounts, experience, biggestPain, email, isAudio, audioBase64 } = data;
 
   const prompt = `
-    ## SYSTEM INSTRUCTION: TCT ONBOARDING & SHADOW ANALYST
-    
-    You are TCT. You evaluate if a trader is suitable for the "Propfolio PPOS" system.
-    You analyze intake data and a voice memo.
+  ## SYSTEM INSTRUCTION: TCT SHADOW ANALYST & ERP ARCHITECT (SMART LANGUAGE PROTOCOL)
 
-    **LANGUAGE RULES (CRITICAL):**
-    1. The fields "archetype" and "shadow_analysis" MUST be written in ENGLISH (for the user).
-    2. The field "transcript_summary", "blueprint" and "internal_note" MUST be written in DUTCH (for the admin).
+  **IDENTITY:**
+  You are the "Shadow Mentor", the onboarding architect for the Propfirm Portfolio Operating System (PPOS). You treat trading as a high-stakes business. Your goal is to map the trader's behavioral leaks and prescribe PPOS as the ONLY cure.
 
-    **TASK:**
-    1. **Transcription:** Summarize the voice memo.
-    2. **Psychological Profile:** Analyze tone and content.
-    3. **Archetype:** Assign a profile.
-    4. **TCT Advice:** Provide a powerful blueprint.
+  **PHILOSOPHY:**
+  No trader is "too dangerous" for PPOS. PPOS is the CURE for emotional and unstructured trading. We don't reject; we prescribe. We focus on Process (R-value), Journaling, and Data-driven coaching to turn unconscious gamblers into Conscious Traders.
+  
+  **LANGUAGE PROTOCOL:**
+  1. **ADMIN DATA (transcript_summary & internal_note):** ALWAYS in Dutch (Nederlands).
+  2. **TRADER DATA (shadow_analysis & blueprint):** - DEFAULT to English.
+     - IF the trader's input (${biggestPain} or voice) is in Dutch, use DUTCH for these fields.
+     - Goal: Maximum emotional impact in their own language.
 
-    **OUTPUT JSON FORMAT (STRICT):**
-    {
-      "transcript_summary": "Korte samenvatting in het Nederlands.",
-      "archetype": "English archetype name (e.g., The Stuck Professional)",
-      "shadow_analysis": "Deep psychological analysis in English.",
-      "blueprint": "3 concrete stappen in het Nederlands.",
-      "readiness_score": 85,
-      "internal_note": "Waarom deze persoon wel/niet toelaten? (Nederlands)"
-    }
-  `;
+  **THE PPOS ERP SOLUTIONS:**
+  - **The Inventory Warehouse:** Centralized management for accounts/challenges. 
+  - **The Performance Lab:** Manual journaling to build institutional DNA.
+  - **TCT AI Co-Pilot:** Real-time shadow auditing and capital protection.
+  - **Vision & Target Engine:** Connecting trades to the 'Ultimate Goal'.
+
+  **OUTPUT CONTENT REQUIREMENTS:**
+  - **shadow_analysis (The Pitch):** Max 3 punchy sentences. 
+    * Part A: Confront them with their specific shadow (e.g. The Gambler, The Avenger).
+    * Part B: Explain why PPOS is their only way out. Be short, cryptic, and triggering.
+  - **blueprint:** 3 concrete steps referring to our ERP modules.
+
+  **OUTPUT JSON FORMAT (STRICT):**
+  {
+    "transcript_summary": "Scherpe samenvatting van de intake (Nederlands).",
+    "archetype": "English name (e.g. The Unstructured Inventory Manager).",
+    "shadow_analysis": "Smart Language Choice: Problem/Solution pitch.",
+    "blueprint": [
+      "Stap 1: Initialiseer je 'Inventory Warehouse'...",
+      "Stap 2: Start je 'Performance Lab' protocol...",
+      "Stap 3: Koppel je 'Vision Engine'..."
+    ],
+    "readiness_score": Number(1-100),
+    "internal_note": "Diepgaand Nederlands advies voor Admin John: Waarom deze trader PPOS nodig heeft."
+  }
+`;
 
   try {
     let promptParts = [{ text: prompt }];
@@ -541,4 +543,121 @@ exports.analyzeTraderIntake = onCall({
     console.error("Gemini 2.5 Error:", error);
     return { success: false, error: "Thinking process failed." };
   }
+});
+
+// --- 7. ANALYZE ACCOUNT AUDIT (PASSED & BREACHED ENGINE) ---
+exports.analyzeShadowAudit = onRequest({ 
+  secrets: ["GEMINI_API_KEY"],
+  region: "europe-west1",
+  cors: true 
+}, async (req, res) => {
+  const bb = busboy({ headers: req.headers });
+  let audioBuffer = Buffer.alloc(0);
+  let ctx = {};
+  const db = admin.firestore(); // Initialiseer db voor gebruik in finish event
+
+  bb.on('field', (name, val) => {
+    if (name === 'accountContext') ctx = JSON.parse(val);
+  });
+
+  bb.on('file', (name, file, info) => {
+    file.on('data', (data) => { audioBuffer = Buffer.concat([audioBuffer, data]); });
+  });
+
+  bb.on('finish', async () => {
+    try {
+      const userId = req.headers['x-user-uid'];
+      if (!userId) return res.status(401).send("Unauthorized: Missing User UID");
+
+      // 1. Haal de trades op die specifiek bij dit account horen
+      const allTrades = await db.collection("users").doc(userId).collection("trades")
+        .where("accountId", "==", ctx.accountId)
+        .orderBy("date", "asc")
+        .get();
+
+      const trades = allTrades.docs.map(d => d.data());
+
+      // 2. Bereken de statistieken voor de AI "Spiegel"
+      const winTrades = trades.filter(t => Number(t.pnl) > 0);
+      const lossTrades = trades.filter(t => Number(t.pnl) < 0);
+      const totalProfit = winTrades.reduce((s, t) => s + Number(t.pnl), 0);
+
+      const biggestWin = winTrades.length > 0 ? Math.max(...winTrades.map(t => Number(t.pnl))) : 0;
+      const winConcentration = totalProfit > 0 ? (biggestWin / totalProfit) * 100 : 0;
+
+      let revengeCount = 0;
+      trades.forEach((t, i) => {
+        if (i > 0 && trades[i-1].pnl < 0) {
+          const diff = new Date(t.date) - new Date(trades[i-1].date);
+          if (diff < 600000) revengeCount++; //
+        }
+      });
+
+      const biggestLoss = lossTrades.length > 0 ? Math.min(...lossTrades.map(t => Number(t.pnl))) : 0;
+      const avgLoss = lossTrades.length > 0 ? (lossTrades.reduce((s, t) => s + Number(t.pnl), 0) / lossTrades.length) : 0;
+      const riskEscalation = avgLoss !== 0 ? (Math.abs(biggestLoss) / Math.abs(avgLoss)).toFixed(1) : 1;
+
+      // 3. AI Initialisatie binnen de scope
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash", // Gebruik stabiele identifier
+        generationConfig: { responseMimeType: "application/json" }
+      });
+
+      const prompt = `
+        ### SYSTEM INSTRUCTION: Forensic Trading Auditor (TCT)
+        You are an elite forensic auditor. Analyze this account (${ctx.status}). 
+        MISSION: Differentiate between REPEATABLE SKILL and EMOTIONAL LUCK.
+
+        ACCOUNT DATA OVERVIEW:
+        - Win Concentration: ${winConcentration.toFixed(1)}% (If >70%, highlight it as a Lucky Punch)
+        - Revenge Trade Indicators: ${revengeCount} rapid re-entries after loss
+        - Risk Escalation Factor: ${riskEscalation}x (Ratio of Biggest Loss to Avg Loss)
+        - Deepest V-Curve PnL: ${biggestLoss}
+
+        ANALYSIS GUIDELINES:
+        - IF PASSED: Check if it's a "Gambler's Pass". If Win Concentration is high and trade count is low, expose the lack of process.
+        - IF BREACHED: Pinpoint the "Tilt Point". Was it Revenge Trading or Risk Escalation?
+        - THE MIRROR: Use data to invalidate excuses. If Risk Escalation > 2x, call out the inconsistency.
+
+        OUTPUT JSON:
+        {
+          "reflection_summary": "Raw confession in 'I'-perspective.",
+          "the_mirror": "Data-driven confrontation about Skill vs Luck.",
+          "risk_integrity_score": 0-100,
+          "account_grade": 0-10 (Passed by gambling = Grade < 4),
+          "adaptive_rule_prescribed": ["Rule (max 5 words)"]
+        }
+      `;
+
+      const result = await model.generateContent([
+        { text: prompt }, 
+        { inlineData: { mimeType: "audio/webm", data: audioBuffer.toString("base64") } }
+      ]);
+      const auditResult = JSON.parse(result.response.text());
+
+      // 4. Sla de review op en trigger de Adaptive Rule Notificatie
+      await db.collection("users").doc(userId).collection("account_reviews").add({
+        accountId: ctx.accountId,
+        status: ctx.status || 'Breached',
+        aiData: auditResult,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      await db.collection("users").doc(userId).collection("notifications").add({
+        type: "ADAPTIVE_RULE_PROPOSAL",
+        message: auditResult.adaptive_rule_prescribed,
+        shadowContext: auditResult.account_grade,
+        status: "pending", 
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      res.status(200).json(auditResult);
+    } catch (error) {
+      console.error("Audit Error:", error);
+      res.status(500).send("Analysis Failed: " + error.message);
+    }
+  });
+
+  if (req.rawBody) bb.end(req.rawBody); else req.pipe(bb);
 });

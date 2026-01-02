@@ -3,14 +3,14 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { Bell } from '@phosphor-icons/react';
 
-export default function NotificationBell({ onClick }) {
-  const [unreadCount, setUnreadCount] = useState(0);
+// We voegen 'pendingCount' en 'hasPendingAudit' toe aan de props
+export default function NotificationBell({ onClick, pendingCount = 0, onAuditClick }) {
+  const [unreadSupportCount, setUnreadSupportCount] = useState(0);
 
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
 
-    // Luister naar feedback items die de status 'replied' hebben en nog NIET gelezen zijn
     const q = query(
       collection(db, "beta_feedback"), 
       where("userId", "==", user.uid), 
@@ -19,15 +19,29 @@ export default function NotificationBell({ onClick }) {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setUnreadCount(snapshot.docs.length);
+      setUnreadSupportCount(snapshot.docs.length);
     });
 
     return () => unsubscribe();
   }, []);
 
+  // Totaal aantal acties = ongelezen support + openstaande AI regels/audits
+  const totalNotifications = unreadSupportCount + pendingCount;
+
+  // Verbeterde klik-afhandeling
+  const handleBellClick = (e) => {
+    // Als er een audit openstaat (pendingCount > 0) en we hebben de audit-functie gekregen
+    if (pendingCount > 0 && onAuditClick) {
+      onAuditClick();
+    } else {
+      // Anders voer de standaard actie uit (setView settings)
+      onClick(e);
+    }
+  };
+
   return (
     <button 
-      onClick={onClick}
+      onClick={handleBellClick}
       style={{ 
         position: 'relative',
         background: 'white', 
@@ -45,9 +59,13 @@ export default function NotificationBell({ onClick }) {
       onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
       onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
     >
-      <Bell size={20} weight={unreadCount > 0 ? "fill" : "bold"} color={unreadCount > 0 ? "#1D1D1F" : "#86868B"} />
+      <Bell 
+        size={20} 
+        weight={totalNotifications > 0 ? "fill" : "bold"} 
+        color={totalNotifications > 0 ? "#FF3B30" : "#86868B"} 
+      />
       
-      {unreadCount > 0 && (
+      {totalNotifications > 0 && (
         <div style={{ 
           position: 'absolute', 
           top: 0, 
@@ -56,15 +74,16 @@ export default function NotificationBell({ onClick }) {
           color: 'white', 
           fontSize: '10px', 
           fontWeight: 800, 
-          width: 16, 
-          height: 16, 
+          width: 18, 
+          height: 18, 
           borderRadius: '50%', 
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center',
-          border: '2px solid white'
+          border: '2px solid white',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
         }}>
-          {unreadCount}
+          {totalNotifications}
         </div>
       )}
     </button>

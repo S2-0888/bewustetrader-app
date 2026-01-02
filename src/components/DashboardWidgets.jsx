@@ -165,8 +165,8 @@ export const ExpectancyWidget = ({ data = [], money }) => {
 };
 
 // --- WIDGET 5: ACCOUNT CARD (TINDER SWIPE OPTIMIZED) ---
-export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded, version = "V1" }) => {
-  const getTheme = () => {
+    export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded, version = "V1", isTargetMet, onUpgrade }) => {
+    const getTheme = () => {
     if (isFunded) return { primary: '#FFD60A', bg: 'linear-gradient(145deg, #1C1C1E 0%, #2C2C2E 100%)', text: '#FFD60A' };
     if (acc.stage === 'Phase 2') return { primary: '#AF52DE', bg: 'linear-gradient(145deg, #0F0F10 0%, #1C1C1E 100%)', text: '#AF52DE' };
     return { primary: '#0A84FF', bg: 'linear-gradient(145deg, #1C1C1E 0%, #0F0F10 100%)', text: '#FFFFFF' };
@@ -186,6 +186,7 @@ export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded,
     return (
       <div style={{ ...containerStyle, padding: '25px', borderRadius: '28px', background: theme.bg, color: 'white', border: `1px solid rgba(255,255,255,0.08)`, position: 'relative', overflow: 'hidden', minHeight: '220px', display: 'flex', flexDirection: 'column' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: isPositive ? '#30D158' : '#FF3B30', opacity: 0.6 }} />
+        
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: '10px', fontWeight: 900, color: theme.primary, letterSpacing: '1.5px', textTransform: 'uppercase' }}>{acc.firm}</div>
@@ -193,11 +194,46 @@ export const AccountCard = ({ acc, balance, progressPct, ddPct, money, isFunded,
           </div>
           <div style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', fontSize: '10px', fontWeight: 800 }}>{acc.stage?.toUpperCase()}</div>
         </div>
+
+        {/* DYNAMISCH MIDDENSTUK: STATS OF UPGRADE BUTTON */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ fontSize: '10px', color: '#8E8E93', fontWeight: 700 }}>CURRENT EQUITY</div>
-          <div style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'monospace' }}>{money(balance)}</div>
-          <div style={{ fontSize: '12px', color: isPositive ? '#30D158' : '#FF453A', fontWeight: 700 }}>{isPositive ? '▲' : '▼'} {money(Math.abs(profitOrLoss))}</div>
+          {isTargetMet ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', color: '#30D158', fontWeight: 900, marginBottom: 12, letterSpacing: '1px' }}>TARGET ACHIEVED</div>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUpgrade(); }}
+                style={{ 
+                  width: '100%', 
+                  padding: '14px', 
+                  background: '#30D158', 
+                  color: 'white', 
+                  border: 'none', 
+                  borderRadius: '16px', 
+                  fontWeight: 900, 
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 8px 20px rgba(48, 209, 88, 0.3)'
+                }}
+              >
+                <Crown size={20} weight="fill" />
+                START NEXT PHASE
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '10px', color: '#8E8E93', fontWeight: 700 }}>CURRENT EQUITY</div>
+              <div style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'monospace' }}>{money(balance)}</div>
+              <div style={{ fontSize: '12px', color: isPositive ? '#30D158' : '#FF453A', fontWeight: 700 }}>
+                {isPositive ? '▲' : '▼'} {money(Math.abs(profitOrLoss))}
+              </div>
+            </>
+          )}
         </div>
+
         <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden', marginTop: 20 }}>
           <div style={{ width: `${progressPct}%`, height: '100%', background: theme.primary }} />
         </div>

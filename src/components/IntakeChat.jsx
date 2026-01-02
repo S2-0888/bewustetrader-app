@@ -29,18 +29,12 @@ export default function IntakeChat({ onCancel }) {
   const scrollRef = useRef(null);
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
-  const hasStarted = useRef(false); 
+  const hasStarted = useRef(false);
+  const [audioData, setAudioData] = useState(new Array(20).fill(5));
 
   const [formData, setFormData] = useState({
-    name: '', 
-    email: '', 
-    accounts: '', 
-    experience: '', 
-    biggestPain: '', 
-    label: 'beta_tester',
-    audioBase64: null,
-    isAudio: false,
-    analysis: null 
+    name: '', email: '', accounts: '', experience: '', biggestPain: '', 
+    label: 'beta_tester', audioBase64: null, isAudio: false, analysis: null 
   });
 
   const [chatLog, setChatLog] = useState([
@@ -53,22 +47,33 @@ export default function IntakeChat({ onCancel }) {
 
     const introSequence = async () => {
       setChatLog([{ role: 'tct', text: "Systems online. I am The Conscious Trader." }]); 
-      
       await new Promise(res => setTimeout(res, 1500)); 
       setIsTyping(true); 
       await new Promise(res => setTimeout(res, 800)); 
       setIsTyping(false); 
       addMessage('tct', "I'm here to bridge the gap between your emotions and institutional execution."); 
-      
       await new Promise(res => setTimeout(res, 2000)); 
       setIsTyping(true); 
       await new Promise(res => setTimeout(res, 800));
       setIsTyping(false); 
       addMessage('tct', `Let’s calibrate your profile. To start: what is your name?`); 
     };
-
     introSequence(); 
   }, []); 
+
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatLog, isTyping]);
+
+  useEffect(() => {
+    let interval;
+    if (isRecording) {
+      interval = setInterval(() => {
+        setAudioData(new Array(20).fill(0).map(() => Math.random() * 40 + 5));
+      }, 100);
+    } else {
+      setAudioData(new Array(20).fill(5));
+    }
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   const steps = [
     { field: 'name', type: 'text', placeholder: 'Identify yourself...' },
@@ -76,8 +81,6 @@ export default function IntakeChat({ onCancel }) {
     { field: 'experience', type: 'select', options: ['Rookie', '1-3 Years', '4+'], label: "How deep is your market experience?" },
     { field: 'biggestPain', type: 'voice_text', label: "What is the primary problem in your trading right now? Use the mic for a voice reflection." }
   ];
-
-  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatLog, isTyping]);
 
   const startRecording = async () => {
     try {
@@ -124,94 +127,85 @@ export default function IntakeChat({ onCancel }) {
     setLoading(true);
     try {
       const user = auth.currentUser;
-      if (!user) throw new Error("Geen actieve sessie gevonden");
-
+      if (!user) { onCancel(); return; }
       const functions = getFunctions(undefined, 'europe-west1');
       const analyze = httpsCallable(functions, 'analyzeTraderIntake');
-      
       const result = await analyze(finalData);
       const analysisResult = result.data.analysis;
-
-      const userDocData = {
-        uid: user.uid,
-        email: user.email,
-        name: finalData.name,
-        accounts: finalData.accounts,
-        experience: finalData.experience,
-        biggestPain: finalData.biggestPain,
-        archetype: analysisResult?.archetype || 'Analyzing...',
+      const userDocRef = doc(db, "users", user.uid);
+      const profileUpdate = {
+        displayName: finalData.name,
+        accounts_count: finalData.accounts,
+        experience_level: finalData.experience,
+        intake_pain: finalData.biggestPain,
+        archetype: analysisResult?.archetype || 'Provisional Pilot',
         shadow_analysis: analysisResult?.shadow_analysis || '',
+        blueprint: analysisResult?.blueprint || [],
+        hasCompletedIntake: false, 
         isApproved: false, 
-        role: 'trader',
         status: 'pending',
-        hasCompletedIntake: true, // DE TRIGGER VOOR LANDINGPAGE
         lastIntakeUpdate: serverTimestamp()
       };
-
-      // 1. Shadow Profile updaten/maken met hasCompletedIntake: true
-      await setDoc(doc(db, "users", user.uid), userDocData, { merge: true });
-
-      // 2. Intake backup opslaan
+      await setDoc(userDocRef, profileUpdate, { merge: true });
       await setDoc(doc(db, "whitelist_intakes", user.uid), {
-        email: user.email,
-        status: 'pending',
-        submittedAt: serverTimestamp(),
-        data: finalData
+        uid: user.uid, email: user.email, name: finalData.name,
+        status: 'pending', submittedAt: serverTimestamp(),
+        analysis: analysisResult, rawData: finalData
       });
-
-      setFormData(prev => ({
-        ...prev,
-        analysis: analysisResult
-      }));
-
+      setLoading(false);
+      setIsRecording(false);
+      setAudioData(new Array(20).fill(5));
+      setIsTyping(true);
+      await new Promise(res => setTimeout(res, 1500));
+      setIsTyping(false);
+      const feedbackText = `Analysis complete, ${finalData.name}. I have identified your archetype as "${analysisResult?.archetype}". We will focus on bridging the gap in your ${finalData.biggestPain === "AUDIO_SUBMISSION" ? 'behavioral consistency' : 'execution'}.`;
+      addMessage('tct', feedbackText);
+      await new Promise(res => setTimeout(res, 4000)); 
+      setFormData(prev => ({ ...prev, analysis: analysisResult }));
       setSuccess(true);
-    } catch (err) { 
+    } catch (err) {
       console.error("Submit error:", err);
-      alert("Submit error. Please try again."); 
+      alert("Calibration failed.");
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const addMessage = (role, text) => setChatLog(prev => [...prev, { role, text }]);
 
- if (success) return (
-    <div style={{...fullScreenOverlay, overflowY: 'auto', padding: '10px'}}>
-      <div style={{ maxWidth: 450, width: '100%', textAlign: 'center', padding: '10px 0' }}>
-        <CheckCircle size={60} weight="fill" color="#30D158" />
-        <h2 style={{ fontSize: 24, fontWeight: 900, marginTop: 15 }}>Analysis Complete</h2>
-        
-        <div style={{...resultCard, padding: '24px', margin: '20px 0', border: '1px solid #007AFF20', background: 'linear-gradient(180deg, #FFFFFF 0%, #F9F9FB 100%)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Robot size={22} weight="fill" color="#007AFF" />
-            <span style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', letterSpacing: 1 }}>TCT CLASSIFICATION</span>
-          </div>
-
-          <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 10, color: '#1D1D1F' }}>
-            {formData.analysis?.archetype}
-          </div>
+  // --- HIER ZIT DE FIX: Het success scherm is nu een early return ---
+  if (success) {
+    return (
+      <div style={fullScreenOverlay}>
+        <div style={{ maxWidth: 480, width: '100%', textAlign: 'center', padding: '20px' }}>
+          <CheckCircle size={80} weight="fill" color="#30D158" />
+          <h2 style={{ fontSize: 28, fontWeight: 900, marginTop: 20 }}>Calibration Successful</h2>
           
-          <div style={{ fontSize: 14, color: '#48484A', lineHeight: 1.6 }}>
-            {/* We tonen GEEN shadow_analysis meer aan de trader, alleen de hulp-focus */}
-            Your profile has been successfully mapped. TCT is now preparing your personalized roadmap to bridge the gap between your current challenges and institutional consistency. 
-            <br/><br/>
-            <strong>Focus:</strong> Behavioral optimization and capital protection.
+          <div style={{ ...resultCard, background: '#F9F9FB', padding: '24px' }}>
+            <div style={{ fontWeight: 800, fontSize: 18, color: '#007AFF', marginBottom: 12 }}>
+              {formData.analysis?.archetype}
+            </div>
+            
+            {/* Eén krachtige feedback zin voor de trader */}
+            <p style={{ fontSize: 15, color: '#1D1D1F', lineHeight: 1.6, fontWeight: 500 }}>
+              {formData.analysis?.shadow_analysis || "Your behavioral patterns have been mapped. TCT is preparing your institutional roadmap."}
+            </p>
           </div>
+
+          <button 
+            onClick={async () => {
+              const userRef = doc(db, "users", auth.currentUser.uid);
+              await setDoc(userRef, { hasCompletedIntake: true }, { merge: true });
+            }} 
+            style={primaryBtn}
+          >
+            Access My Dashboard <PaperPlaneTilt size={20} weight="bold" />
+          </button>
         </div>
-
-        <p style={{ color: '#86868B', fontSize: 13, marginBottom: 20, padding: '0 20px', lineHeight: 1.5 }}>
-            Your data is now being audited by the Architect. You will receive a notification once your access to the <strong>Propfirm Portfolio Operating System</strong> is activated.
-        </p>
-        
-        <button 
-          onClick={onCancel} 
-          style={{...primaryBtn, marginTop: 0}}
-        >
-          Return to Portal
-        </button>
       </div>
-    </div>
-  );
+    );
+  }
 
+  // De standaard return voor de chat (als success false is)
   return (
     <div style={fullScreenOverlay}>
       <div style={chatContainer}>
@@ -233,12 +227,19 @@ export default function IntakeChat({ onCancel }) {
         </div>
         <div style={chatInputArea}>
           {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#86868B', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#86868B' }}>
               <ArrowsClockwise className="spinner" size={20} /> {translations.en.processing}
             </div>
           ) : (
             <>
-              {steps[step].type === 'text' || steps[step].type === 'email' ? (
+              {isRecording && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', height: '40px', marginBottom: '15px' }}>
+                  {audioData.map((height, i) => (
+                    <div key={i} style={{ width: '3px', height: `${height}px`, backgroundColor: '#007AFF', borderRadius: '2px', transition: 'height 0.1s ease' }} />
+                  ))}
+                </div>
+              )}
+              {steps[step].type === 'text' ? (
                 <form onSubmit={(e) => { e.preventDefault(); handleNext(e.target.input.value); e.target.input.value=''; }} style={{ display: 'flex', gap: 10 }}>
                   <input name="input" autoFocus style={inputField} placeholder="Type here..." />
                   <button type="submit" style={sendBtn}><PaperPlaneTilt size={20} /></button>
@@ -264,9 +265,8 @@ export default function IntakeChat({ onCancel }) {
   );
 }
 
-// STYLES (Ongewijzigd)
-const resultCard = { background: '#FFFFFF', padding: '24px', borderRadius: '28px', margin: '24px 0', textAlign: 'left', border: '1px solid #E5E5EA', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' };
-const transcriptBox = { fontSize: '13px', color: '#8E8E93', fontStyle: 'italic', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #F2F2F7', lineHeight: 1.4 };
+// STYLES
+const resultCard = { background: '#FFFFFF', padding: '24px', borderRadius: '28px', margin: '24px 0', textAlign: 'left', border: '1px solid #E5E5EA' };
 const fullScreenOverlay = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(255,255,255,0.98)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
 const chatContainer = { width: '100%', maxWidth: 500, height: '85vh', background: 'white', borderRadius: 32, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #F2F2F7' };
 const chatHeader = { padding: '20px 25px', borderBottom: '1px solid #F2F2F7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
@@ -274,7 +274,7 @@ const avatarCircle = { width: 40, height: 40, borderRadius: '50%', background: '
 const chatBody = { flex: 1, padding: 25, overflowY: 'auto' };
 const chatBubble = { padding: '14px 18px', maxWidth: '85%', borderRadius: '18px', fontSize: 15 };
 const chatInputArea = { padding: 20, borderTop: '1px solid #F2F2F7' };
-const inputField = { flex: 1, padding: '14px', borderRadius: 12, border: '1px solid #E5E5EA', outline: 'none', fontSize: '16px', fontFamily: 'inherit' };
+const inputField = { flex: 1, padding: '14px', borderRadius: 12, border: '1px solid #E5E5EA', outline: 'none', fontSize: '16px' };
 const sendBtn = { background: '#007AFF', color: 'white', border: 'none', borderRadius: 12, width: 48, height: 48, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const optionBtn = { padding: '12px', borderRadius: 12, border: '1px solid #E5E5EA', background: 'white', fontWeight: 700, cursor: 'pointer' };
-const primaryBtn = { width: '100%', padding: '16px', borderRadius: 16, background: '#1D1D1F', color: 'white', fontWeight: 800, marginTop: 20, cursor: 'pointer', border: 'none' };
+const primaryBtn = { width: '100%', padding: '16px', borderRadius: 16, background: '#1D1D1F', color: 'white', fontWeight: 800, cursor: 'pointer', border: 'none' };

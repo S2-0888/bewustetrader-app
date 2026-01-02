@@ -10,7 +10,8 @@ import {
     ArrowCounterClockwise, Strategy, CheckCircle, 
     Warning, Tag, UploadSimple, Table, Database, Trash,
     ClockCounterClockwise, ChatCircleText, EnvelopeSimple, MagnifyingGlass,
-    LockSimple, PaperPlaneTilt, Robot, ShieldCheck, WarningCircle
+    LockSimple, PaperPlaneTilt, Robot, ShieldCheck, WarningCircle,
+    Bell, Brain, Check, Prohibit
 } from '@phosphor-icons/react';
 import Papa from 'papaparse'; 
 
@@ -159,7 +160,7 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState('trading'); 
   const [activeConfig, setActiveConfig] = useState('strategies'); 
   const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [userProfile, setUserProfile] = useState(null); // Voor subscription info
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [inputValue, setInputValue] = useState(''); 
@@ -167,7 +168,8 @@ export default function Settings() {
   const [recentBatches, setRecentBatches] = useState([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
-  // --- MESSAGING STATE ---
+  // --- MESSAGING & NOTIFICATION STATE ---
+  const [notifications, setNotifications] = useState([]);
   const [myFeedback, setMyFeedback] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -179,43 +181,111 @@ export default function Settings() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Listen for personal messages/feedback
   useEffect(() => {
     if (!auth.currentUser) return;
-    const q = query(
+    const user = auth.currentUser;
+
+    // Listen voor TCT Adaptive Rules (Notificaties)
+    const qNotifs = query(
+        collection(db, "users", user.uid, "notifications"),
+        orderBy("createdAt", "desc")
+    );
+    const unsubNotifs = onSnapshot(qNotifs, (snap) => {
+        setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    // Listen voor Support Berichten
+    const qFeedback = query(
         collection(db, "beta_feedback"), 
-        where("userId", "==", auth.currentUser.uid), 
+        where("userId", "==", user.uid), 
         orderBy("updatedAt", "desc")
     );
-    const unsubFeedback = onSnapshot(q, (snapshot) => {
+    const unsubFeedback = onSnapshot(qFeedback, (snapshot) => {
         setMyFeedback(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
     });
 
-    const unsubProfile = onSnapshot(doc(db, "users", auth.currentUser.uid), (snap) => {
+    const unsubProfile = onSnapshot(doc(db, "users", user.uid), (snap) => {
         if (snap.exists()) setUserProfile(snap.data());
     });
 
+    const fetchSettings = async () => {
+        const docRef = doc(db, "users", user.uid, "settings", "tradelab");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) setConfig(docSnap.data());
+        setLoading(false);
+        fetchRecentBatches();
+    };
+    fetchSettings();
+
     return () => {
+        unsubNotifs();
         unsubFeedback();
         unsubProfile();
     }
   }, []);
 
-  // --- LOGICA VOOR SUBSCRIPTION PROGRESS ---
+  const handleRuleDecision = async (notif, decision) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    if (decision !== 'approved') {
+        await updateDoc(doc(db, "users", user.uid, "notifications", notif.id), { status: decision });
+        return;
+    }
+
+    const userRef = doc(db, "users", user.uid);
+    const currentRules = config.rules || [];
+    
+    // 1. Normaliseer inkomende data: splits op punten/komma's als de AI toch een string stuurde
+    let proposed = Array.isArray(notif.message) ? notif.message : notif.message.split(/[.,]/);
+    
+    const cleanedNewRules = proposed
+        .map(r => r.trim())
+        .filter(r => r.length > 3 && r.length < 60); // Filter ruis
+
+    // 2. Filter regels die al bestaan (Case-insensitive check)
+    const newUniqueRules = cleanedNewRules.filter(proposedRule => {
+        return !currentRules.some(existingRule => 
+            existingRule.toLowerCase().trim() === proposedRule.toLowerCase().trim()
+        );
+    });
+
+    if (newUniqueRules.length > 0) {
+        // 3. Update de algemene Trade Lab checklist config
+        const updatedRules = [...currentRules, ...newUniqueRules];
+        const newConfig = { ...config, rules: updatedRules };
+        setConfig(newConfig);
+        await setDoc(doc(db, "users", user.uid, "settings", "tradelab"), newConfig);
+
+        // 4. Update het 'Active Protocols' contract in het User Profile
+        const { arrayUnion } = require('firebase/firestore');
+        for (const ruleText of newUniqueRules) {
+            await updateDoc(userRef, {
+                activeProtocols: arrayUnion({
+                    text: ruleText,
+                    source: notif.shadowContext || "AI Audit",
+                    acceptedAt: new Date()
+                })
+            });
+        }
+        alert(`${newUniqueRules.length} new rule(s) added to your contract.`);
+    } else {
+        alert("These rules are already part of your active protocols.");
+    }
+    
+    // 5. Update de notificatie status zodat deze uit de 'Pending' lijst verdwijnt
+    await updateDoc(doc(db, "users", user.uid, "notifications", notif.id), { status: 'approved' });
+  };
+
   const getSubscriptionProgress = () => {
     if (!userProfile?.currentPeriodEnd || !userProfile?.updatedAt) return 0;
-    
     const start = userProfile.updatedAt.toDate ? userProfile.updatedAt.toDate().getTime() : new Date().getTime();
     const end = userProfile.currentPeriodEnd.toDate ? userProfile.currentPeriodEnd.toDate().getTime() : new Date().getTime();
     const now = new Date().getTime();
-    
     if (now >= end) return 100;
-    
     const totalDuration = end - start;
     const elapsed = now - start;
-    const progress = Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
-    
-    return progress;
+    return Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
   };
 
   const markRead = async (id) => {
@@ -225,7 +295,6 @@ export default function Settings() {
   const sendFollowUp = async (id) => {
     const text = replyInputs[id];
     if (!text) return;
-    
     await updateDoc(doc(db, "beta_feedback", id), {
         message: text, 
         status: 'open',
@@ -235,7 +304,6 @@ export default function Settings() {
     setReplyInputs(prev => ({ ...prev, [id]: '' }));
   };
 
-  // Filter logic for the inbox
   const filteredMessages = myFeedback.filter(msg => {
     const matchesSearch = msg.message.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (msg.reply && msg.reply.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -244,7 +312,6 @@ export default function Settings() {
     return matchesSearch;
   });
 
-  // Fetch recent import sessions
   const fetchRecentBatches = async () => {
     const user = auth.currentUser;
     if (!user) return;
@@ -270,19 +337,6 @@ export default function Settings() {
     }
     setRecentBatches(Object.values(batchesMap).sort((a,b) => b.date - a.date));
   };
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-        const user = auth.currentUser;
-        if (!user) return;
-        const docRef = doc(db, "users", user.uid, "settings", "tradelab");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) setConfig(docSnap.data());
-        setLoading(false);
-        fetchRecentBatches();
-    };
-    fetchSettings();
-  }, []);
 
   const handleWipeBatch = async (batchId) => {
       if (!confirm(`Are you sure you want to delete this import batch? (${batchId})`)) return;
@@ -326,20 +380,19 @@ export default function Settings() {
       alert('Saved successfully!');
   };
 
-  if (loading) return <div style={{ padding:40, color:'#86868B' }}>Loading System Architect...</div>;
+  if (loading && !userProfile) return <div style={{ padding:40, color:'#86868B' }}>Loading System Architect...</div>;
 
   return (
-    <div style={{ padding: '40px 20px', maxWidth: 1000, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh' }}>
+    <div style={{ padding: isMobile ? '20px 15px' : '40px 20px', maxWidth: 1000, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh' }}>
       
-      <div style={{ marginBottom: 30 }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 800, margin: 0, letterSpacing: '-1px' }}>System Architect</h1>
-            <p style={{ color: '#86868B' }}>Configure your trading ecosystem and communications.</p>
-      </div>
+      <header style={{ marginBottom: 30 }}>
+            <h1 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: 800, margin: 0, letterSpacing: '-1px' }}>System Architect</h1>
+            <p style={{ color: '#86868B', fontSize: '14px' }}>Configure your trading ecosystem and interventions.</p>
+      </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: 40 }}>
-          <div style={{ display:'flex', flexDirection: isMobile ? 'row' : 'column', gap: 5, overflowX: isMobile ? 'auto' : 'visible' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: isMobile ? '20px' : '40px' }}>
+          <div style={{ display:'flex', flexDirection: isMobile ? 'row' : 'column', gap: 5, overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 10 : 0 }}>
               <MenuButton label="Trading" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
-              <MenuButton label="Migration" icon={<Database size={20}/>} active={activeTab==='import'} onClick={()=>setActiveTab('import')} />
               
               <div style={{ position: 'relative' }}>
                 <MenuButton 
@@ -348,15 +401,16 @@ export default function Settings() {
                   active={activeTab==='messages'} 
                   onClick={()=>setActiveTab('messages')} 
                 />
-                {myFeedback.some(m => m.status === 'replied' && !m.isRead) && (
-                  <div style={{ position: 'absolute', right: 12, top: 14, width: 8, height: 8, background: '#FF3B30', borderRadius: '50%', border: '2px solid #F5F5F7' }} />
+                {(myFeedback.some(m => m.status === 'replied' && !m.isRead) || notifications.some(n => n.status === 'pending')) && (
+                  <div className="pulse-dot" style={{ position: 'absolute', right: 12, top: 14, width: 8, height: 8, background: '#FF3B30', borderRadius: '50%', border: '2px solid #F5F5F7' }} />
                 )}
               </div>
 
+              <MenuButton label="Migration" icon={<Database size={20}/>} active={activeTab==='import'} onClick={()=>setActiveTab('import')} />
               <MenuButton label="Billing" icon={<CreditCard size={20}/>} active={activeTab==='account'} onClick={()=>setActiveTab('account')} />
           </div>
 
-          <div>
+          <div style={{ minWidth: 0 }}>
               {activeTab === 'trading' && (
                   <div className="bento-card" style={{ padding: 0, overflow:'hidden', minHeight: 500, display:'flex', flexDirection:'column', background: 'white' }}>
                       <div style={{ padding: 15, borderBottom: '1px solid #F2F2F7', background:'#F9F9F9', display:'flex', gap:5, overflowX: 'auto' }}>
@@ -366,7 +420,7 @@ export default function Settings() {
                               </button>
                           ))}
                       </div>
-                      <div style={{ padding: 30, flex:1 }}>
+                      <div style={{ padding: isMobile ? 20 : 30, flex:1 }}>
                           <h3 style={{ margin:0, fontSize:18, display:'flex', alignItems:'center', gap:10 }}>Manage {CATEGORIES.find(c=>c.id===activeConfig).label}</h3>
                           <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop: 20 }}>
                               {(config[activeConfig] || []).map((item, idx) => (
@@ -427,122 +481,206 @@ export default function Settings() {
                       <p style={{ color: '#86868B', fontSize: 14, marginTop: 4 }}>Direct support & system updates from the DBT Founders.</p>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-                    <div style={{ flex: 1, position: 'relative' }}>
-                      <MagnifyingGlass size={18} style={{ position: 'absolute', left: 12, top: 12, color: '#8E8E93' }} />
-                      <input className="apple-input" placeholder="Search messages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ paddingLeft: 40, background: 'white' }} />
+                  {/* TCT INTERVENTIONS */}
+                  <section style={{ marginBottom: 25 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>
+                        <Brain size={24} weight="fill" color="#007AFF" />
+                        <h2 style={{ fontSize: '18px', fontWeight: 900, margin: 0 }}>TCT Interventions</h2>
                     </div>
-                    <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: '0 15px', borderRadius: 12, border: '1px solid #E5E5EA', fontWeight: 600, fontSize: 13, background: 'white' }}>
-                      <option value="all">All</option>
-                      <option value="unread">Unread</option>
-                      <option value="replied">Answered</option>
-                    </select>
-                  </div>
+                    <div style={{ display: 'grid', gap: 15 }}>
+                        {notifications.filter(n => n.status === 'pending').length === 0 ? (
+                            <div style={{ padding: 30, textAlign: 'center', background: 'white', borderRadius: 20, border: '1px solid #E5E5EA' }}>
+                                <ShieldCheck size={32} color="#30D158" weight="light" style={{ marginBottom: 10 }} />
+                                <p style={{ color: '#86868B', fontSize: 13, margin: 0 }}>All protocols are calibrated. No pending interventions.</p>
+                            </div>
+                        ) : (
+                          notifications.filter(n => n.status === 'pending').map(n => (
+                                  <div key={n.id} className="bento-card" style={{ padding: 25, background: 'white', borderLeft: '4px solid #FF3B30', boxShadow: '0 10px 30px rgba(255, 59, 48, 0.1)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                          <div style={{ background: '#FF3B3015', padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 900, color: '#FF3B30' }}>
+                                              ADAPTIVE PROTOCOL PROPOSAL
+                                          </div>
+                                      </div>
+                                      
+                                      <p style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.4, margin: '0 0 15px 0', color: '#1D1D1F' }}>
+                                          "{n.message}"
+                                      </p>
+                                      
+                                      <div style={{ fontSize: 12, color: '#48484A', background: '#F5F5F7', padding: '15px', borderRadius: 12, marginBottom: 20, borderLeft: '3px solid #E5E5EA' }}>
+                                          <strong style={{ display: 'block', fontSize: 10, color: '#86868B', marginBottom: 4 }}>REASONING:</strong>
+                                          {n.shadowContext}
+                                      </div>
 
-                  <div style={{ display: 'grid', gap: 20 }}>
-                    {filteredMessages.length === 0 ? (
-                      <div style={{ padding: 60, textAlign: 'center', background: 'white', borderRadius: 24, border: '1px dashed #C7C7CC' }}>
-                        <EnvelopeSimple size={40} color="#C7C7CC" weight="thin" />
-                        <p style={{ color: '#86868B', marginTop: 10 }}>Your inbox is empty.</p>
-                      </div>
-                    ) : (
-                      filteredMessages.map(item => {
-                        const lastUpdate = item.updatedAt?.toDate() || new Date();
-                        const hoursSinceUpdate = (new Date().getTime() - lastUpdate.getTime()) / 3600000;
-                        const isLocked = item.status === 'closed' || hoursSinceUpdate > 24;
-
-                        return (
-                          <div key={item.id} onClick={() => !item.isRead && markRead(item.id)}
-                            style={{ 
-                                padding: 24, borderRadius: 24, border: '1px solid #E5E5EA', background: 'white',
-                                boxShadow: item.status === 'replied' && !item.isRead ? '0 10px 20px rgba(0,122,255,0.05)' : 'none',
-                                transition: '0.2s ease'
-                            }}
-                          >
-                              {/* HEADER */}
-                              <div style={{ display:'flex', justifyContent:'space-between', alignItems: 'center', marginBottom: 15 }}>
-                                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#007AFF', background: 'rgba(0,122,255,0.1)', padding: '3px 10px', borderRadius: 20 }}>
-                                        {item.type?.toUpperCase() || 'SUPPORT'}
-                                    </span>
-                                    <span style={{ fontSize: 12, color: '#86868B', fontWeight: 600 }}>
-                                        {item.createdAt?.toDate().toLocaleDateString('nl-NL')}
-                                    </span>
+                                      <div style={{ display: 'flex', gap: 10 }}>
+                                          <button 
+                                              onClick={() => handleRuleDecision(n, 'approved')} 
+                                              style={{ flex: 1, height: 44, background: '#1D1D1F', color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                                          >
+                                              <CheckCircle size={20} weight="fill" /> Accept & Commit
+                                          </button>
+                                          <button 
+                                              onClick={() => handleRuleDecision(n, 'refused')} 
+                                              style={{ padding: '0 20px', height: 44, background: 'transparent', color: '#86868B', border: '1px solid #E5E5EA', borderRadius: 12, fontWeight: 700, cursor: 'pointer' }}
+                                          >
+                                              Discard
+                                          </button>
+                                      </div>
                                   </div>
-                                  {isLocked && <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#86868B', fontSize: 10, fontWeight: 800 }}><LockSimple size={14}/> CLOSED</div>}
-                                  {item.status === 'replied' && !item.isRead && (
-                                      <div style={{ background: '#FF3B30', color: 'white', fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 6 }}>NEW REPLY</div>
-                                  )}
-                              </div>
+                              ))
+                        )}
+                    </div>
 
-                              {/* CHAT BUBBLES */}
-                              <div style={{ display: 'grid', gap: 15 }}>
-                                {/* USER MESSAGE */}
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                    <div style={{ background: '#F2F2F7', padding: '12px 18px', borderRadius: '18px 18px 2px 18px', maxWidth: '85%', fontSize: 14, fontWeight: 500 }}>
-                                        {item.message}
-                                        {item.attachment && (
-                                            <div style={{ marginTop: 10 }}>
-                                                <a href={item.attachment} target="_blank" rel="noreferrer">
-                                                    <img src={item.attachment} style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E5EA' }} alt="Attachment" />
-                                                </a>
-                                            </div>
-                                        )}
+                    {/* VOEG HIER DE ACTIVE PROTOCOLS TOE (STAP 3) */}
+                    {userProfile?.activeProtocols && userProfile.activeProtocols.length > 0 && (
+                        <div style={{ 
+                            marginTop: 20, 
+                            padding: 20, 
+                            background: 'rgba(48, 209, 88, 0.05)', 
+                            borderRadius: 24, 
+                            border: '1px solid rgba(48, 209, 88, 0.1)',
+                            animation: 'fadeIn 0.5s ease'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                <ShieldCheck size={18} color="#30D158" weight="fill" />
+                                <span style={{ fontSize: 10, fontWeight: 900, color: '#30D158', letterSpacing: '0.5px' }}>ACTIVE TRADING CONTRACTS</span>
+                            </div>
+                            <div style={{ display: 'grid', gap: 10 }}>
+                                {userProfile.activeProtocols.map((p, i) => (
+                                    <div key={i} style={{ 
+                                        background: 'white', 
+                                        padding: '12px 15px', 
+                                        borderRadius: 12, 
+                                        fontSize: 13, 
+                                        fontWeight: 700, 
+                                        color: '#1D1D1F',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        boxShadow: '0 2px 5px rgba(0,0,0,0.02)'
+                                    }}>
+                                        <span>{p.text}</span>
+                                        <span style={{ fontSize: 9, color: '#86868B', fontWeight: 600 }}>
+                                            Source: {p.source}
+                                        </span>
                                     </div>
-                                </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {/* EINDE ACTIVE PROTOCOLS */}
+                  </section>
 
-                                {/* ADMIN REPLY */}
-                                {item.reply && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, marginLeft: 5 }}>
-                                            <Robot size={14} weight="fill" color="#007AFF" />
-                                            <span style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', letterSpacing: 0.5 }}>DBT FOUNDER RESPONSE</span>
-                                        </div>
-                                        <div style={{ background: '#007AFF', color: 'white', padding: '12px 18px', borderRadius: '18px 18px 18px 2px', maxWidth: '85%', fontSize: 14, lineHeight: 1.5 }}>
-                                            {item.reply}
-                                            {/* ADMIN ATTACHMENT DISPLAY */}
-                                            {item.replyAttachment && (
+                  <section style={{ borderTop: '1px solid #E5E5EA', paddingTop: 25 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>
+                        <ChatCircleText size={24} weight="fill" color="#8E8E93" />
+                        <h2 style={{ fontSize: '18px', fontWeight: 900, margin: 0 }}>Support Inbox</h2>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+                        <div style={{ flex: 1, position: 'relative' }}>
+                          <MagnifyingGlass size={18} style={{ position: 'absolute', left: 12, top: 12, color: '#8E8E93' }} />
+                          <input className="apple-input" placeholder="Search messages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ paddingLeft: 40, background: 'white' }} />
+                        </div>
+                        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: '0 15px', borderRadius: 12, border: '1px solid #E5E5EA', fontWeight: 600, fontSize: 13, background: 'white' }}>
+                          <option value="all">All</option>
+                          <option value="unread">Unread</option>
+                          <option value="replied">Answered</option>
+                        </select>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 20 }}>
+                        {filteredMessages.length === 0 ? (
+                          <div style={{ padding: 60, textAlign: 'center', background: 'white', borderRadius: 24, border: '1px dashed #C7C7CC' }}>
+                            <EnvelopeSimple size={40} color="#C7C7CC" weight="thin" />
+                            <p style={{ color: '#86868B', marginTop: 10 }}>Your inbox is empty.</p>
+                          </div>
+                        ) : (
+                          filteredMessages.map(item => {
+                            const lastUpdate = item.updatedAt?.toDate() || new Date();
+                            const hoursSinceUpdate = (new Date().getTime() - lastUpdate.getTime()) / 3600000;
+                            const isLocked = item.status === 'closed' || hoursSinceUpdate > 24;
+
+                            return (
+                              <div key={item.id} onClick={() => !item.isRead && markRead(item.id)}
+                                style={{ 
+                                    padding: 24, borderRadius: 24, border: '1px solid #E5E5EA', background: 'white',
+                                    boxShadow: item.status === 'replied' && !item.isRead ? '0 10px 20px rgba(0,122,255,0.05)' : 'none',
+                                    transition: '0.2s ease'
+                                }}
+                              >
+                                  <div style={{ display:'flex', justifyContent:'space-between', alignItems: 'center', marginBottom: 15 }}>
+                                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: '#007AFF', background: 'rgba(0,122,255,0.1)', padding: '3px 10px', borderRadius: 20 }}>
+                                            {item.type?.toUpperCase() || 'SUPPORT'}
+                                        </span>
+                                        <span style={{ fontSize: 12, color: '#86868B', fontWeight: 600 }}>
+                                            {item.createdAt?.toDate().toLocaleDateString('nl-NL')}
+                                        </span>
+                                      </div>
+                                      {isLocked && <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#86868B', fontSize: 10, fontWeight: 800 }}><LockSimple size={14}/> CLOSED</div>}
+                                      {item.status === 'replied' && !item.isRead && (
+                                          <div style={{ background: '#FF3B30', color: 'white', fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 6 }}>NEW REPLY</div>
+                                      )}
+                                  </div>
+
+                                  <div style={{ display: 'grid', gap: 15 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                        <div style={{ background: '#F2F2F7', padding: '12px 18px', borderRadius: '18px 18px 2px 18px', maxWidth: '85%', fontSize: 14, fontWeight: 500 }}>
+                                            {item.message}
+                                            {item.attachment && (
                                                 <div style={{ marginTop: 10 }}>
-                                                    <a href={item.replyAttachment} target="_blank" rel="noreferrer">
-                                                        <img src={item.replyAttachment} style={{ width: '100%', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)' }} alt="Admin Attachment" />
+                                                    <a href={item.attachment} target="_blank" rel="noreferrer">
+                                                        <img src={item.attachment} style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E5EA' }} alt="Attachment" />
                                                     </a>
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                )}
-                              </div>
-
-                              {/* FOLLOW UP INPUT (IF NOT LOCKED) */}
-                              {!isLocked && (
-                                <div style={{ marginTop: 25, paddingTop: 20, borderTop: '1px solid #F2F2F7' }}>
-                                    <div style={{ display: 'flex', gap: 10 }}>
-                                        <input 
-                                            className="apple-input" 
-                                            placeholder="Type a follow-up message..." 
-                                            value={replyInputs[item.id] || ''}
-                                            onChange={(e) => setReplyInputs({ ...replyInputs, [item.id]: e.target.value })}
-                                            onKeyDown={(e) => e.key === 'Enter' && sendFollowUp(item.id)}
-                                            style={{ background: '#F5F5F7', border: 'none' }}
-                                        />
-                                        <button 
-                                            onClick={() => sendFollowUp(item.id)}
-                                            disabled={!replyInputs[item.id]}
-                                            style={{ width: 45, height: 45, background: '#007AFF', color: 'white', border: 'none', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: replyInputs[item.id] ? 1 : 0.5 }}
-                                        >
-                                            <PaperPlaneTilt size={20} weight="fill" />
-                                        </button>
+                                    {item.reply && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, marginLeft: 5 }}>
+                                                <Robot size={14} weight="fill" color="#007AFF" />
+                                                <span style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', letterSpacing: 0.5 }}>DBT FOUNDER RESPONSE</span>
+                                            </div>
+                                            <div style={{ background: '#007AFF', color: 'white', padding: '12px 18px', borderRadius: '18px 18px 18px 2px', maxWidth: '85%', fontSize: 14, lineHeight: 1.5 }}>
+                                                {item.reply}
+                                                {item.replyAttachment && (
+                                                    <div style={{ marginTop: 10 }}>
+                                                        <a href={item.replyAttachment} target="_blank" rel="noreferrer">
+                                                            <img src={item.replyAttachment} style={{ width: '100%', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)' }} alt="Admin Attachment" />
+                                                        </a>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                  </div>
+                                  {!isLocked && (
+                                    <div style={{ marginTop: 25, paddingTop: 20, borderTop: '1px solid #F2F2F7' }}>
+                                        <div style={{ display: 'flex', gap: 10 }}>
+                                            <input 
+                                                className="apple-input" 
+                                                placeholder="Type a follow-up message..." 
+                                                value={replyInputs[item.id] || ''}
+                                                onChange={(e) => setReplyInputs({ ...replyInputs, [item.id]: e.target.value })}
+                                                onKeyDown={(e) => e.key === 'Enter' && sendFollowUp(item.id)}
+                                                style={{ background: '#F5F5F7', border: 'none' }}
+                                            />
+                                            <button 
+                                                onClick={() => sendFollowUp(item.id)}
+                                                disabled={!replyInputs[item.id]}
+                                                style={{ width: 45, height: 45, background: '#007AFF', color: 'white', border: 'none', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: replyInputs[item.id] ? 1 : 0.5 }}
+                                            >
+                                                <PaperPlaneTilt size={20} weight="fill" />
+                                            </button>
+                                        </div>
                                     </div>
-                                    <p style={{ fontSize: 10, color: '#86868B', marginTop: 8, fontStyle: 'italic' }}>
-                                        This conversation will lock 24h after the last update.
-                                    </p>
-                                </div>
-                              )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
+                                  )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                  </section>
                 </div>
               )}
 
@@ -552,17 +690,9 @@ export default function Settings() {
                         <h2 style={{ fontSize: '24px', fontWeight: 900, margin: 0, letterSpacing: '-1.5px' }}>Subscription & Billing</h2>
                         <p style={{ color: '#86868B', fontSize: 14, marginTop: 4 }}>Manage your membership and view payment history.</p>
                     </div>
-
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 25 }}>
-                        
-                        {/* LINKS: CURRENT STATUS CARD */}
                         <div className="bento-card" style={{ padding: 30, background: 'white', border: '1px solid #E5E5EA', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: 0, right: 0, padding: '15px', opacity: 0.05 }}>
-                                <ShieldCheck size={120} weight="fill" />
-                            </div>
-                            
                             <div className="label-xs" style={{ color: '#007AFF', marginBottom: 20 }}>MEMBERSHIP STATUS</div>
-                            
                             <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginBottom: 30 }}>
                                 <div style={{ 
                                     width: 60, height: 60, borderRadius: 18, 
@@ -573,12 +703,9 @@ export default function Settings() {
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 18, fontWeight: 800 }}>{userProfile?.isApproved ? 'Active Access' : 'Access Restricted'}</div>
-                                    <div style={{ fontSize: 13, color: '#86868B' }}>
-                                        {userProfile?.isFounder ? 'Exclusive Founder Member' : 'Standard Member'}
-                                    </div>
+                                    <div style={{ fontSize: 13, color: '#86868B' }}>{userProfile?.isFounder ? 'Exclusive Founder Member' : 'Standard Member'}</div>
                                 </div>
                             </div>
-
                             <div style={{ background: '#F5F5F7', padding: '20px', borderRadius: 16, marginBottom: 25 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                                     <span style={{ fontSize: 13, color: '#86868B', fontWeight: 600 }}>Renew Date:</span>
@@ -587,51 +714,29 @@ export default function Settings() {
                                     </span>
                                 </div>
                                 <div style={{ width: '100%', height: 6, background: '#E5E5EA', borderRadius: 3, overflow: 'hidden' }}>
-                                    <div style={{ 
-                                        width: `${getSubscriptionProgress()}%`, 
-                                        height: '100%', 
-                                        background: userProfile?.isApproved ? '#30D158' : '#FF3B30', 
-                                        borderRadius: 3,
-                                        transition: 'width 1s ease-in-out'
-                                    }} />
+                                    <div style={{ width: `${getSubscriptionProgress()}%`, height: '100%', background: userProfile?.isApproved ? '#30D158' : '#FF3B30', borderRadius: 3 }} />
                                 </div>
                             </div>
-
-                            <button 
-                                onClick={() => window.location.href = 'https://billing.stripe.com/p/login/test_YOUR_PORTAL_LINK'}
-                                style={{ 
-                                    width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #1D1D1F', 
-                                    background: 'transparent', color: '#1D1D1F', fontWeight: 700, cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10
-                                }}
-                            >
+                            <button onClick={() => window.location.href = 'https://billing.stripe.com/p/login/test_YOUR_PORTAL_LINK'} className="btn-primary" style={{ width: '100%', background: 'transparent', color: '#1D1D1F', border: '1px solid #1D1D1F' }}>
                                 <CreditCard size={20} /> Manage Subscription in Stripe
                             </button>
                         </div>
-
-                        {/* RECHTS: BILLING LOGS */}
                         <div className="bento-card" style={{ padding: 25, background: 'white', border: '1px solid #E5E5EA' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
                                 <ClockCounterClockwise size={22} weight="bold" color="#8E8E93" />
                                 <h4 style={{ fontWeight: 800, margin: 0 }}>Payment History</h4>
                             </div>
-
                             <div style={{ display: 'grid', gap: 12 }}>
                                 <div style={{ padding: '12px 15px', borderBottom: '1px solid #F5F5F7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div>
                                         <div style={{ fontSize: 12, fontWeight: 800 }}>Network Membership</div>
-                                        <div style={{ fontSize: 10, color: '#86868B' }}>
-                                            {userProfile?.createdAt?.toDate().toLocaleDateString('nl-NL')} • Visa **** 4242
-                                        </div>
+                                        <div style={{ fontSize: 10, color: '#86868B' }}>{userProfile?.createdAt?.toDate().toLocaleDateString('nl-NL')} • Visa **** 4242</div>
                                     </div>
                                     <div style={{ textAlign: 'right' }}>
                                         <div style={{ fontSize: 12, fontWeight: 900 }}>€99.00</div>
                                         <div style={{ fontSize: 9, color: '#30D158', fontWeight: 800 }}>PAID</div>
                                     </div>
                                 </div>
-                                <p style={{ fontSize: 11, color: '#86868B', fontStyle: 'italic', marginTop: 10 }}>
-                                    Invoices are sent to <strong>{userProfile?.email}</strong>.
-                                </p>
                             </div>
                         </div>
                     </div>
@@ -642,7 +747,7 @@ export default function Settings() {
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .pulse-dot { animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } }
       `}</style>
     </div>
   );
@@ -666,8 +771,8 @@ const DEFAULT_CONFIG = {
 };
 
 const CATEGORIES = [
-    { id: 'strategies', label: 'Strategies', icon: <Strategy size={18}/>, color: '#007AFF', desc: 'Which setups do you trade?' },
-    { id: 'rules', label: 'Rules', icon: <CheckCircle size={18}/>, color: '#30D158', desc: 'Discipline checklist items.' },
-    { id: 'mistakes', label: 'Mistakes', icon: <Warning size={18}/>, color: '#FF9F0A', desc: 'Tags for evaluation.' },
-    { id: 'quality', label: 'Quality', icon: <Tag size={18}/>, color: '#AF52DE', desc: 'Setup grading labels.' },
+    { id: 'strategies', label: 'Strategies', icon: <Strategy size={18}/>, color: '#007AFF' },
+    { id: 'rules', label: 'Rules', icon: <CheckCircle size={18}/>, color: '#30D158' },
+    { id: 'mistakes', label: 'Mistakes', icon: <Warning size={18}/>, color: '#FF9F0A' },
+    { id: 'quality', label: 'Quality', icon: <Tag size={18}/>, color: '#AF52DE' },
 ];

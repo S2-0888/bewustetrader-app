@@ -15,8 +15,10 @@
   --radius-bento: 24px;        
   --shadow-bento: 0 4px 24px rgba(0,0,0,0.04); 
   
-  /* SIDEBAR SETTINGS */
-  --sidebar-width: 280px;
+  /* NIEUWE RAIL SETTINGS */
+  --rail-collapsed: 68px;
+  --rail-expanded: 240px;
+  --glass-bg: rgba(255, 255, 255, 0.75);
 }
 
 body {
@@ -27,10 +29,10 @@ body {
   margin: 0;
   padding: 0;
   height: 100vh;
-  overflow: hidden;
+  overflow: hidden; /* Houdt de app in een 'frame' */
 }
 
-/* --- 1. DE HOOFD LAYOUT --- */
+/* --- 1. DE HOOFD LAYOUT (EXPANDABLE RAIL) --- */
 
 .app-container {
   display: flex;
@@ -41,25 +43,48 @@ body {
 }
 
 .sidebar {
-  width: var(--sidebar-width);
-  background: var(--bg-card);
+  width: var(--rail-collapsed);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-right: 1px solid rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 20px 0;
   box-sizing: border-box;
   flex-shrink: 0;
   height: 100%;
-  z-index: 100;
+  z-index: 1000;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: fixed; /* Blijft staan terwijl main content scrollt */
+  left: 0;
+  top: 0;
+  overflow: hidden; /* Belangrijk om de tekst weg te snijden bij collapsed */
 }
 
+.sidebar:hover {
+  width: var(--rail-expanded);
+  box-shadow: 10px 0 40px rgba(0,0,0,0.04);
+}
+
+/* --- LOGO ANIMATIE --- */
+.sidebar .logo-full {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+}
+
+.sidebar:hover .logo-full {
+  opacity: 1;
+}
+
+/* --- NAVIGATIE ITEMS --- */
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  margin-bottom: 6px;
-  border-radius: 14px;
+  justify-content: flex-start;
+  padding: 14px 22px; /* De 22px zorgt dat het icoon perfect gecentreerd is in 68px */
+  margin-bottom: 4px;
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 600;
@@ -70,6 +95,26 @@ body {
   background: transparent;
   width: 100%;
   text-align: left;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.nav-item svg {
+  flex-shrink: 0; /* Voorkomt dat het icoon kleiner wordt dan 24px */
+  min-width: 24px;
+  height: 24px;
+}
+
+.nav-item span {
+  margin-left: 16px;
+  opacity: 0; /* Verberg tekst in collapsed stand */
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.sidebar:hover .nav-item span {
+  opacity: 1; /* Toon tekst bij uitklappen */
+  pointer-events: auto;
 }
 
 .nav-item:hover {
@@ -78,81 +123,98 @@ body {
 }
 
 .nav-item.active {
-  background-color: var(--text-main);
-  color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  background-color: rgba(0, 122, 255, 0.08);
+  color: var(--blue);
 }
 
 .main {
   flex: 1;
   overflow-y: auto;
-  padding: 0;
+  padding: 40px;
+  margin-left: var(--rail-collapsed); /* Maak ruimte voor de rail */
+  transition: margin-left 0.3s ease;
   position: relative;
 }
 
-/* --- 2. MOBIELE TAB BAR (Nieuw Alternatief) --- */
+/* --- 2. MOBIELE OPTIMALISATIE (FLOATING GLASS DOCK) --- */
 
-.mobile-tab-bar {
-  display: none; /* Verberg standaard op desktop */
-}
-
-@media (max-width: 900px) {
-  /* Verberg de sidebar volledig op mobiel */
+@media (max-width: 768px) {
   .sidebar {
+    width: 90% !important;
+    height: 64px !important;
+    left: 50% !important;
+    bottom: 24px !important;
+    top: auto !important;
+    transform: translateX(-50%);
+    flex-direction: row !important;
+    border-radius: 20px;
+    padding: 0 12px;
+    justify-content: space-around;
+    align-items: center;
+    border-right: none;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+  }
+
+  /* --- Dashboard Specifieke Mobiele Fixes (HIER MOETEN ZE STAAN) --- */
+  
+  .performance-capsule div[style*="fontSize: 42px"],
+  .performance-capsule div[style*="fontSize: 48px"] {
+    font-size: 32px !important;
+    letter-spacing: -1px !important;
+  }
+
+  .active-vault-scroll {
+    display: flex !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    margin-left: -15px !important;
+    margin-right: -15px !important;
+    padding-left: 15px !important;
+    padding-right: 15px !important;
+  }
+
+  .active-vault-scroll::-webkit-scrollbar {
     display: none;
   }
 
-  /* Toon de Tab Bar onderaan met Frosted Glass effect */
-  .mobile-tab-bar {
+  /* --- EINDE DASHBOARD FIXES --- */
+
+  .main {
+    margin-left: 0;
+    padding: 20px;
+    padding-bottom: 120px; 
+  }
+
+  /* Verberg alles behalve de iconen op mobiel */
+  .sidebar-header, 
+  .sidebar-footer .nav-item span, 
+  .nav-item span,
+  .sidebar-footer,
+  .sidebar .logo-full {
+    display: none !important;
+  }
+
+  .sidebar-nav {
     display: flex;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 70px;
-    background: rgba(255, 255, 255, 0.8); 
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    flex-direction: row;
+    width: 100%;
     justify-content: space-around;
-    align-items: center;
-    padding-bottom: env(safe-area-inset-bottom); 
-    z-index: 1000;
   }
 
-  .tab-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    gap: 4px;
-    flex: 1;
-    cursor: pointer;
-    transition: color 0.2s ease;
+  .nav-item {
+    width: auto;
+    padding: 12px;
+    margin-bottom: 0;
+    justify-content: center;
   }
 
-  .tab-item span {
-    font-size: 10px;
-    font-weight: 600;
-  }
-
-  .tab-item.active {
-    color: var(--blue); 
-  }
-
-  /* Belangrijk: Grid naar 1 kolom op mobiel */
   .bento-grid { 
     grid-template-columns: 1fr; 
   }
   .span-2, .span-3 { 
     grid-column: auto; 
-  }
-
-  /* Voeg padding toe onderaan de content zodat de Tab Bar niets blokkeert */
-  .main {
-    padding-bottom: 90px;
   }
 }
 
@@ -201,18 +263,14 @@ body {
   grid-template-columns: repeat(3, 1fr);
   grid-auto-rows: minmax(180px, auto);
   gap: 20px;
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
 .span-2 { grid-column: span 2; }
 .span-3 { grid-column: span 3; }
 
-/* --- 4. APPLE TABLE STIJL --- */
-
-.table-container {
-  overflow-x: auto;
-}
+/* --- 4. TABLES & BADGES --- */
 
 .apple-table {
   width: 100%;
@@ -227,19 +285,12 @@ body {
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
   border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 
 .apple-table td {
   padding: 16px;
-  color: var(--text-main);
   border-bottom: 1px solid rgba(0,0,0,0.05);
-  font-variant-numeric: tabular-nums;
-}
-
-.apple-table tr:last-child td {
-  border-bottom: none;
 }
 
 .badge {
@@ -247,13 +298,11 @@ body {
   border-radius: 6px;
   font-size: 11px;
   font-weight: 700;
-  display: inline-block;
 }
 .badge-win { background: rgba(52, 199, 89, 0.1); color: var(--green); }
 .badge-loss { background: rgba(255, 59, 48, 0.1); color: var(--red); }
-.badge-open { background: rgba(0, 122, 255, 0.1); color: var(--blue); }
 
-/* --- 5. FORMS & INPUTS --- */
+/* --- 5. INPUTS & UTILS --- */
 
 .input-group {
   margin-bottom: 16px;
@@ -288,28 +337,27 @@ body {
 }
 
 .btn-primary {
-  background: var(--text-main);
+  background: var(--blue); /* Verandert zwart naar Apple Blauw */
   color: white;
   border: none;
-  padding: 12px 24px;
+  padding: 0 24px;         /* Verwijder top/bottom padding voor vaste hoogte */
+  height: 44px;            /* Matcht exact de hoogte van je apple-input */
   border-radius: 12px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: all 0.2s ease;
+  
+  /* DE UITLIJNING FIX */
+  width: 100%;             /* Dwingt de knop de hele kolombreedte te vullen */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: auto;        /* Duwt de knop naar de onderkant van de grid-cel */
 }
 
 .btn-primary:hover {
-  opacity: 0.8;
-}
-/* Chrome, Safari, Edge, Opera */
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-/* Firefox */
-input[type=number] {
-  -moz-appearance: textfield;
+  background: #0062cc;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,122,255,0.2);
 }
