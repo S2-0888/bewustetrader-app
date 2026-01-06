@@ -2,19 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
-import { doc, onSnapshot, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore'; 
-import { 
-  signInWithPopup,
-  signInWithRedirect, 
-  GoogleAuthProvider, 
-  getRedirectResult 
-} from 'firebase/auth';
-import { 
-  SquaresFour, Notebook, Briefcase, ChartLineUp, 
-  Gear, SignOut, ShieldCheck, Flag, Brain 
-} from '@phosphor-icons/react';
+import { doc, onSnapshot, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'; 
+import { signInWithPopup, GoogleAuthProvider, getRedirectResult } from 'firebase/auth';
+import { SquaresFour, Notebook, Briefcase, ChartLineUp, Gear, SignOut, ShieldCheck, Flag, Brain } from '@phosphor-icons/react';
 
 // --- COMPONENTS ---
+import LandingPage from './components/LandingPage'; // <--- Check of dit bestand hier echt staat!
 import FeedbackWidget from './components/FeedbackWidget';
 import OnboardingModal from './components/OnboardingModal';
 import Dashboard from './components/Dashboard';
@@ -25,7 +18,7 @@ import Goals from './components/Goals';
 import Settings from './components/Settings';
 import Admin from './components/Admin';
 import IntakeChat from './components/IntakeChat';
-import Insights from './components/Insights'; 
+import Insights from './components/Insights';
 
 /**
  * HULP COMPONENT VOOR NAVIGATIE
@@ -121,6 +114,7 @@ function AppContent() {
   const [userProfile, setUserProfile] = useState(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showLogin, setShowLogin] = useState(false); // <--- Nieuw: om te wisselen tussen info en inlog
   const navigate = useNavigate();
 
   const adminEmails = ["stuiefranken@gmail.com"];
@@ -129,12 +123,9 @@ function AppContent() {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      if (result.user) {
-        navigate('/dashboard');
-      }
+      if (result.user) navigate('/dashboard');
     } catch (error) {
       console.error("Login failed:", error);
-      alert("Inloggen mislukt: " + error.message);
     }
   };
 
@@ -209,49 +200,47 @@ function AppContent() {
     <>
       <Routes>
         <Route path="/" element={!user ? (
-          <div style={{ backgroundColor: '#000', color: '#fff', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-              <div style={{ marginBottom: '40px' }}>
-                  <div style={{ fontSize: 24, fontWeight: 900, color: '#FFF', letterSpacing: '2px' }}>PROPFOLIO</div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#86868B', marginTop: 4 }}>POWERED BY TCT</div>
-              </div>
-              <h1 style={{ fontSize: '42px', fontWeight: 900, maxWidth: '600px', marginBottom: '20px', letterSpacing: '-1px' }}>Master Your Trading Shadow.</h1>
-              <p style={{ color: '#86868B', marginBottom: '40px', maxWidth: '450px', fontSize: '18px' }}>Access the Institutional Operating System for Conscious Traders.</p>
-              <button onClick={handleSignIn} style={{ padding: '16px 32px', borderRadius: '12px', background: '#FFF', color: '#000', border: 'none', fontWeight: 800, cursor: 'pointer', fontSize: '16px' }}>
-                  Enter the System
-              </button>
-          </div>
-        ) : <Navigate to="/dashboard" replace />} />
+  !showLogin ? (
+    <LandingPage onSignIn={() => setShowLogin(true)} />
+  ) : (
+    /* STAP 2: De Login Gateway (Zwart scherm) */
+    /* We gebruiken min-h-screen zodat hij wel scrollbaar is als dat nodig is */
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center text-center p-6">
+        <div style={{ marginBottom: '40px' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#FFF', letterSpacing: '2px' }}>PROPFOLIO</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#86868B', marginTop: 4 }}>POWERED BY TCT</div>
+        </div>
+        <h1 style={{ fontSize: '42px', fontWeight: 900, maxWidth: '600px', marginBottom: '20px', letterSpacing: '-1px', color: '#fff' }}>
+          Master Your Trading Shadow.
+        </h1>
+        <p style={{ color: '#86868B', marginBottom: '40px', maxWidth: '450px', fontSize: '18px' }}>
+          Access the Institutional Operating System for Conscious Traders.
+        </p>
+        
+        <button 
+          onClick={handleSignIn} 
+          style={{ padding: '16px 32px', borderRadius: '12px', background: '#FFF', color: '#000', border: 'none', fontWeight: 800, cursor: 'pointer', fontSize: '16px' }}
+        >
+          Enter the System
+        </button>
+
+        <button 
+          onClick={() => setShowLogin(false)} 
+          style={{ marginTop: '30px', background: 'none', color: '#444', border: 'none', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
+        >
+          Return to information
+        </button>
+    </div>
+  )
+) : <Navigate to="/dashboard" replace />} />
 
         <Route path="/dashboard" element={
           user ? (
-            !userProfile ? (
-              <div className="loading-screen">INITIALIZING PROFILE...</div>
-            ) : !userProfile.hasCompletedIntake ? (
-              <IntakeChat onCancel={() => auth.signOut()} />
-            ) : (userProfile.isApproved || userProfile.role === 'admin') ? (
-              <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} />
-            ) : (
-              <div style={{ backgroundColor: '#000', color: '#fff', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px', position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(0,122,255,0.15) 0%, rgba(0,0,0,0) 70%)', filter: 'blur(40px)', zIndex: 0 }}></div>
-                  <div style={{ zIndex: 1, maxWidth: '500px' }}>
-                      <div style={{ marginBottom: '40px' }}>
-                          <div style={{ width: 100, height: 100, borderRadius: '30%', background: 'rgba(29, 29, 31, 0.8)', border: '1px solid rgba(0, 122, 255, 0.3)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', position: 'relative' }}>
-                              <ShieldCheck size={48} weight="duotone" color="#007AFF" />
-                          </div>
-                      </div>
-                      <h2 style={{ fontSize: '32px', fontWeight: 900, letterSpacing: '-1px' }}>Institutional Access Pending</h2>
-                      <p style={{ color: '#86868B', lineHeight: 1.6, margin: '15px 0 40px 0' }}>
-                          The Conscious Trader is currently auditing your parameters. You will be notified once your access to the Operating System is activated.
-                      </p>
-                      <button onClick={() => auth.signOut()} style={{ background: 'transparent', color: '#86868B', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                          Sign out and return later
-                      </button>
-                  </div>
-              </div>
-            )
-          ) : (
-            <Navigate to="/" replace />
-          )
+            !userProfile ? <div className="loading-screen">INITIALIZING...</div> :
+            !userProfile.hasCompletedIntake ? <IntakeChat onCancel={() => auth.signOut()} /> :
+            (userProfile.isApproved || userProfile.role === 'admin') ? <AuthenticatedApp userProfile={userProfile} handleLogout={() => auth.signOut()} /> :
+            <div className="pending">Access Pending...</div>
+          ) : <Navigate to="/" replace />
         } />
       </Routes>
       <FeedbackWidget />

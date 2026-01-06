@@ -1,4 +1,20 @@
+@import "tailwindcss";
+
+/* Jouw eigen stijlen kunnen hieronder blijven staan */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  html, body {
+    /* Zorg dat de overflow niet op hidden staat */
+    overflow-x: hidden;
+    overflow-y: auto;
+    background-color: #000;
+    height: auto;
+    min-height: 100%;
+  }
+}
+
 
 :root {
   /* KLEURENPALET */

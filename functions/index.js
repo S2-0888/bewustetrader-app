@@ -3,10 +3,17 @@ const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const busboy = require("busboy");
 
+// 1. Importeer de nieuwe sync handler
+const mt5SyncHandler = require('./sync/mt5Sync');
+
+// 2. Initialiseer Firebase Admin (één keer aan de top)
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
+// 3. Definieer globale database variabelen
+const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
 const AI_MODEL = "gemini-2.5-flash";
 
 // --- HULPFUNCTIE: HAAL BUSINESS, VISION & PSYCHOLOGY DATA OP ---
@@ -661,3 +668,10 @@ exports.analyzeShadowAudit = onRequest({
 
   if (req.rawBody) bb.end(req.rawBody); else req.pipe(bb);
 });
+
+// --- 8. MT5 SYNC RECEIVER (On-Demand Sync) ---
+// We geven db en FieldValue mee aan de handler
+exports.mt5DataReceiver = onRequest({ 
+  region: "europe-west1", 
+  cors: true 
+}, mt5SyncHandler(db)); // We geven alleen 'db' mee, 'FieldValue' wordt nu in mt5Sync.js zelf geregeld.

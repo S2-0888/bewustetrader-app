@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash } from '@phosphor-icons/react';
+import { X, Plus, Trash, ShieldCheck } from '@phosphor-icons/react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 

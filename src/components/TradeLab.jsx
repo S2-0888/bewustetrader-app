@@ -5,9 +5,8 @@ import {
   Trash, X, Wallet, Gear,
   Smiley, SmileySad, SmileyMeh, 
   SmileyNervous, Plus, PlusCircle, Blueprint, ArrowSquareOut, CaretDown, Lightning, Scales, Info,
-  Microphone, StopCircle, Waves, Sparkle, CheckCircle // <--- CHECK 1: Toegevoegd voor checklist icons
+  Microphone, StopCircle, Waves, Sparkle, CheckCircle, Ghost, ShieldCheck, Eye // <--- CHECK 1: Toegevoegd voor checklist icons
 } from '@phosphor-icons/react';
-import AdvancedJournalForm from './AdvancedJournalForm';
 
 // --- HELPER COMPONENT: VOICE NOTE INPUT (Advanced Context Version) ---
 function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeContext }) {
@@ -34,7 +33,7 @@ function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeCont
       setIsRecording(true);
     } catch (err) {
       console.error("Microphone access denied", err);
-      alert("Microfoon toegang geweigerd.");
+      alert("Microphone access denied.");
     }
   };
 
@@ -90,7 +89,7 @@ function VoiceNoteInput({ onTranscriptionComplete, onFeedbackReceived, tradeCont
       }
     } catch (error) {
       console.error("AI Voice Error:", error);
-      alert("AI Coach kon de audio niet verwerken.");
+      alert("AI Coach could not process the audio.");
     } finally {
       setIsTranscribing(false);
     }
@@ -152,27 +151,31 @@ export default function TradeLab() {
   const [trades, setTrades] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [isProMode, setIsProMode] = useState(false);
   const [showPriceFields, setShowPriceFields] = useState(true); 
   const [editingTrade, setEditingTrade] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [tctFeedback, setTctFeedback] = useState(''); 
   const [showRules, setShowRules] = useState(() => localStorage.getItem('tct_show_rules') === 'true');
   const [activeProtocols, setActiveProtocols] = useState([]);
+  const [incomingSyncs, setIncomingSyncs] = useState([]);
+  const [selectedSyncDetail, setSelectedSyncDetail] = useState(null);
+  const [activeTab, setActiveTab] = useState('review'); // 'pretrade' of 'review'
+  const [isReadOnlyMode, setIsReadOnlyMode] = useState(false);
+  const [validationError, setValidationError] = useState(''); // Nieuwe state voor elegante meldingen
 
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
 
-    // Listen naar het User Profile voor actieve contracten
     const unsubUser = onSnapshot(doc(db, "users", user.uid), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setActiveProtocols(data.activeProtocols || []);
-      }
+      if (snap.exists()) setActiveProtocols(snap.data().activeProtocols || []);
     });
 
-    return () => unsubUser();
+    const unsubSync = onSnapshot(collection(db, "users", user.uid, "incoming_syncs"), (snap) => {
+      setIncomingSyncs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubUser(); unsubSync(); };
   }, []);
 
   useEffect(() => {
@@ -274,14 +277,35 @@ export default function TradeLab() {
     setForm(prev => ({ ...prev, pair: '', risk: '', entryPrice: '', slPrice: '', tpPrice: '', isAligned: false, checkedRules: [] }));
 };
 
+
   const executeCloseTrade = async (e) => {
     e.preventDefault();
     if (!closingTrade) return;
+
+    // --- LOGIC VALIDATION CHECK ---
+    const entry = Number(closingTrade.entryPrice);
+    const exit = Number(closeExitPrice);
+    const direction = closingTrade.direction;
+    const gross = Number(closeGrossPnl);
+
+    if (direction === 'LONG' && exit < entry && gross > 0) {
+        if (!window.confirm("DATA INCONSISTENCY: For a LONG trade, the exit price is lower than the entry price. This should be a loss, but you entered a profit. Are you sure?")) return;
+    }
+    if (direction === 'SHORT' && exit > entry && gross > 0) {
+        if (!window.confirm("DATA INCONSISTENCY: For a SHORT trade, the exit price is higher than the entry price. This should be a loss, but you entered a profit. Are you sure?")) return;
+    }
+    
     await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", closingTrade.id), {
-        status: 'CLOSED', pnl: Number(closePnl), exitPrice: Number(closeExitPrice),
-        grossPnl: Number(closeGrossPnl), commission: Number(closeCommission || 0), 
-        closedAt: new Date(), actualExits: [{ price: Number(closeExitPrice) }]
+        status: 'CLOSED', 
+        pnl: Number(closePnl), 
+        exitPrice: Number(closeExitPrice),
+        grossPnl: Number(closeGrossPnl), 
+        commission: Number(closeCommission || 0), 
+        maePrice: Number(closingTrade.maePrice || 0), // Zorg dat deze mee gaat
+        mfePrice: Number(closingTrade.mfePrice || 0), // Zorg dat deze mee gaat
+        closedAt: new Date(), 
+        actualExits: [{ price: Number(closeExitPrice) }]
     });
     setClosingTrade(null); setClosePnl(''); setCloseExitPrice(''); setCloseCommission(''); setCloseGrossPnl('');
   };
@@ -289,22 +313,111 @@ export default function TradeLab() {
   const handleUpdateTrade = async (e) => {
     e.preventDefault();
     if (!editingTrade) return;
+    setValidationError(''); // Reset bij elke poging
+
+    // --- LOGIC VALIDATION CHECK ---
+    const entry = Number(editingTrade.entryPrice);
+    const exit = Number(editingTrade.actualExits?.[0]?.price || editingTrade.exitPrice);
+    const direction = editingTrade.direction;
+    const gross = Number(editingTrade.grossPnl || editingTrade.profit || 0); // Hier wordt 'gross' nu gedeclareerd
+    const comm = Math.abs(Number(editingTrade.commission || 0));
+    const net = gross - comm;
+
+    if ((direction === 'LONG' && exit < entry && gross > 0) || 
+        (direction === 'SHORT' && exit > entry && gross > 0)) {
+        setValidationError("EXECUTION ERROR: The price action contradicts the profit entered. Please verify your data.");
+        return; // Stopt de opslag zonder lelijke popup
+    }
+
+    if (direction === 'LONG' && exit < entry && gross > 0) {
+        if (!window.confirm("EXECUTION ERROR: The price action (Long + Exit < Entry) contradicts the profit entered. Please verify your MT5 data before finalizing.")) return;
+    }
+    if (direction === 'SHORT' && exit > entry && gross > 0) {
+        if (!window.confirm("EXECUTION ERROR: The price action (Short + Exit > Entry) contradicts the profit entered. Please verify your MT5 data before finalizing.")) return;
+    }
+
     await updateDoc(doc(db, "users", auth.currentUser.uid), { lastAiUpdate: null });
-    const net = Number(editingTrade.grossPnl || 0) - Math.abs(Number(editingTrade.commission || 0));
+
     await updateDoc(doc(db, "users", auth.currentUser.uid, "trades", editingTrade.id), {
-        ...editingTrade, pnl: net
+        ...editingTrade, 
+        pnl: net,
+        maePrice: Number(editingTrade.maePrice || 0),
+        mfePrice: Number(editingTrade.mfePrice || 0),
+        reviewCompleted: true, // De cirkel wordt gesloten [cite: 2026-01-04]
+        status: 'CLOSED'
     });
     setEditingTrade(null);
     setTctFeedback(''); 
   };
 
-  const openReviewModal = (trade) => {
+  // --- NIEUW: Verwerkt de koppeling tussen MT5 data en jouw plan ---
+  const handleSmartLink = async (tradeId, mt5Data) => {
+    const user = auth.currentUser;
+    const tradeRef = doc(db, "users", user.uid, "trades", tradeId);
+    
+    try {
+        await updateDoc(tradeRef, {
+            mt5_ticket: mt5Data.ticket,
+            exitPrice: Number(mt5Data.close_price || 0),
+            grossPnl: Number(mt5Data.profit || 0),
+            commission: Number(mt5Data.commission || 0),
+            pnl: Number(mt5Data.pnl || mt5Data.profit || 0),
+            status: 'CLOSED',
+            closedAt: serverTimestamp(),
+            notes: `Matched via Close Modal. Ticket: ${mt5Data.ticket}.`
+        });
+        await deleteDoc(doc(db, "users", user.uid, "incoming_syncs", mt5Data.id));
+        setClosingTrade(null); // Sluit de modal
+        alert("Execution linked and trade closed!");
+    } catch (err) { console.error(err); }
+};
+
+  const handleCreateNoPlanTrade = async (mt5Data) => {
+    const user = auth.currentUser;
+    if (!confirm("Dit was een trade zonder plan (Shadow Event). Loggen voor analyse?")) return;
+    await addDoc(collection(db, "users", user.uid, "trades"), {
+        date: new Date().toISOString().split('T')[0],
+        pair: mt5Data.symbol,
+        accountNumber: mt5Data.account_number,
+        status: 'CLOSED',
+        pnl: Number(mt5Data.pnl),
+        mt5_ticket: mt5Data.ticket,
+        disciplineScore: 0,
+        mistake: ["No Plan"],
+        notes: "Automatically logged as unplanned trade."
+    });
+    await deleteDoc(doc(db, "users", user.uid, "incoming_syncs", mt5Data.id));
+  };
+
+  // Splits trades in Active (OPEN) en History (CLOSED < 30 dagen)
+  // --- FILTER LOGICA VOOR DASHBOARD SCHOONMAAK ---
+  const activeTrades = trades
+  .filter(t => t.status === 'OPEN')
+  .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const pendingReviewTrades = trades
+  .filter(t => t.status === 'CLOSED' && !t.reviewCompleted)
+  .sort((a, b) => new Date(b.closedAt?.seconds * 1000 || b.date) - new Date(a.closedAt?.seconds * 1000 || a.date));
+  
+  const historyTrades = trades.filter(t => {
+    if (t.status === 'OPEN') return false; // Alleen gesloten trades
+    
+    const tradeDate = new Date(t.date);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    return tradeDate > thirtyDaysAgo; // Alleen van de laatste 30 dagen
+  }).slice(0, 10); // Toon er maximaal 10 op dit scherm
+
+  const openReviewModal = (trade, readOnly = false) => {
+    setIsReadOnlyMode(readOnly); // Zet de modus voor de UI [cite: 2026-01-04]
     setTctFeedback(trade.aiFeedback || ''); 
     setEditingTrade({ 
         ...trade, 
         actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) 
     });
   };
+  
 
   return (
     <div style={{ padding: isMobile ? '15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
@@ -314,15 +427,10 @@ export default function TradeLab() {
             <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1>
             {!isMobile && <p style={{ color: '#86868B', fontSize: 14 }}>Operations & Review</p>}
         </div>
-        {!isMobile && (
-            <div onClick={() => setIsProMode(!isProMode)} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', background: isProMode ? '#F0F8FF' : '#F2F2F7', padding:'8px 12px', borderRadius:14 }}>
-                {isProMode ? <Blueprint size={18} color="#007AFF" /> : <Lightning size={18} color="#86868B" />}
-                <span style={{ fontSize:10, fontWeight:800, color: isProMode ? '#007AFF' : '#86868B' }}>{isProMode ? 'ADVANCED' : 'LIGHTNING'}</span>
-            </div>
-        )}
+        
       </div>
 
-      {!isProMode && (
+
         <div className="bento-card" style={{ borderTop: '4px solid #007AFF', padding: isMobile ? 20 : 25 }}>
           <form onSubmit={handleSimpleOpen}>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr', gap: 30 }}>
@@ -436,235 +544,548 @@ export default function TradeLab() {
               </div>
           </form>
         </div>
-      )}
-
-      {!isMobile && isProMode && (
-        <AdvancedJournalForm 
-          onSubmit={(data) => { addDoc(collection(db, "users", auth.currentUser.uid, "trades"), data); setIsProMode(false); }} 
-          onCancel={() => setIsProMode(false)} 
-        />
-      )}
 
       <div style={{ marginTop: 30 }}>
-        {isMobile ? (
-          <div style={{ display: 'grid', gap: '15px' }}>
-            {trades.map(trade => (
-              <div 
-                key={trade.id} 
-                className="bento-card" 
-                onClick={() => openReviewModal(trade)}
-                style={{ padding: '20px', borderLeft: `4px solid ${trade.status === 'OPEN' ? '#007AFF' : (trade.disciplineScore === 100 ? '#30D158' : '#FF3B30')}` }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {trade.isAdvanced ? <Blueprint size={20} color="#007AFF" weight="fill" /> : <Lightning size={20} color="#FF9F0A" weight="fill" />}
-                    <span style={{ fontWeight: 800, fontSize: 16 }}>{trade.pair}</span>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: trade.direction === 'LONG' ? '#30D158' : '#FF3B30' }}>{trade.direction}</span>
+        {/* --- SECTION 1: UNMATCHED MT5 TRADES (High-End Grid) --- */}
+        {incomingSyncs.length > 0 && (
+          <div style={{ marginBottom: 35 }}>
+            <div className="label-xs" style={{ color: '#FF9F0A', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Lightning size={14} weight="fill" /> {incomingSyncs.length} UNMATCHED MT5 EXECUTION{incomingSyncs.length > 1 ? 'S' : ''}
+            </div>
+            
+            <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', 
+                gap: 12 
+            }}>
+              {incomingSyncs.map(sync => {
+                const netPnl = Number(sync.pnl || sync.profit || 0);
+                const fee = Math.abs(Number(sync.commission || 0)) + Math.abs(Number(sync.swap || 0));
+
+                return (
+                  <div key={sync.id} className="bento-card" style={{ 
+                      borderTop: `3px solid ${netPnl >= 0 ? '#30D158' : '#FF453A'}`, 
+                      padding: '12px', background: '#FFF', borderRadius: '14px',
+                      display: 'flex', flexDirection: 'column', gap: 10
+                  }}>
+                    {/* Ticker - Firm - P&L */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 900, fontSize: 15 }}>{sync.symbol}</div>
+                        <div style={{ fontSize: 9, color: '#86868B', fontWeight: 600 }}>{sync.firm || 'MT5 Sync'}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, color: netPnl >= 0 ? '#30D158' : '#FF453A' }}>
+                          {netPnl >= 0 ? `+$${netPnl.toFixed(2)}` : `-$${Math.abs(netPnl).toFixed(2)}`}
+                        </div>
+                        <div style={{ fontSize: 8, color: '#86868B' }}>Fee: ${fee.toFixed(2)}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <select 
+                        style={{ flex: 1, padding: '7px', borderRadius: '10px', fontSize: '10px', border: '1px solid #E5E5EA', background: 'white', fontWeight: 700, cursor: 'pointer' }}
+                        onChange={(e) => { if(e.target.value) handleLinkTrade(e.target.value, sync) }}
+                      >
+                        <option value="">Link to Plan...</option>
+                        {activeTrades.map(t => <option key={t.id} value={t.id}>{t.pair} ({t.direction})</option>)}
+                      </select>
+                      <button onClick={() => setSelectedSyncDetail(sync)} style={{ background: '#F2F2F7', border: 'none', width: '34px', height: '34px', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Info size={18} weight="bold" color="#007AFF" />
+                      </button>
+                    </div>
                   </div>
-                  <span style={{ fontSize: 11, color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</span>
-                </div>
-                <div style={{ fontSize: 13, color: '#1D1D1F', marginBottom: 15 }}>
-                  <span style={{ color: '#86868B' }}>Account:</span> <span style={{ fontWeight: 700 }}>{trade.accountName}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontWeight: 900, fontSize: 18, color: trade.status === 'OPEN' ? '#007AFF' : (trade.pnl >= 0 ? '#30D158' : '#FF453A') }}>
-                    {trade.status === 'OPEN' ? 'OPEN' : `$${trade.pnl || 0}`}
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    {trade.status === 'OPEN' && (
-                      <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: '#FF3B30', color: 'white', border: 'none', borderRadius: '10px', padding: '12px 20px', fontSize: '12px', fontWeight: 800 }}>CLOSE</button>
-                    )}
-                    <button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#FF3B30', padding: 10, opacity: 0.4}}><Trash size={20}/></button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bento-card" style={{ padding: 0, overflow: 'hidden' }}>
-              <table className="apple-table">
-                  <thead><tr><th>Datum</th><th>Ticker</th><th>Account</th><th>Status</th><th>Resultaat</th><th></th></tr></thead>
-                  <tbody>
-                      {trades.map(trade => (
-                          <tr key={trade.id} onClick={() => openReviewModal(trade)} className="hover-row" style={{ cursor:'pointer' }}>
-                              <td style={{ fontSize: '11px', color: '#86868B' }}>{new Date(trade.date).toLocaleDateString('nl-NL')}</td>
-                              <td style={{ fontWeight:700 }}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{trade.isAdvanced ? <Blueprint size={16} color="#007AFF" weight="fill" /> : <Lightning size={16} color="#FF9F0A" weight="fill" />}{trade.pair} <span style={{fontSize:9, color: trade.direction==='LONG'?'#30D158':'#FF3B30'}}>{trade.direction}</span></div></td>
-                              <td><div style={{ fontWeight: 600 }}>{trade.accountName}</div><div style={{ fontSize: 10, color: '#86868B' }}>{trade.accountNumber || 'ID N/A'}</div></td>
-                              <td>{trade.status === 'OPEN' ? <span className="badge-blue">OPEN</span> : <span style={{color:'#86868B'}}>CLOSED</span>}</td>
-                              <td style={{ fontWeight:800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>{trade.status === 'OPEN' ? <button onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} style={{ background: 'rgba(0, 122, 255, 0.08)', color: '#007AFF', border: '1px solid rgba(0, 122, 255, 0.15)', borderRadius: '8px', padding: '6px 16px', fontSize: '11px', fontWeight: 800 }}>CLOSE</button> : `$${trade.pnl || 0}`}</td>
-                              <td><button onClick={(e) => {e.stopPropagation(); if(confirm('Delete?')) deleteDoc(doc(db, "users", auth.currentUser.uid, "trades", trade.id))}} style={{border:'none', background:'none', color:'#ccc', cursor: 'pointer', opacity: 0.6}}><Trash size={16}/></button></td>
-                          </tr>
-                      ))}
-                  </tbody>
-              </table>
+                );
+              })}
+            </div>
           </div>
         )}
+
+        <div style={{ display: 'grid', gap: 30, marginTop: 30 }}>
+          
+          {/* --- FASE 1: ACTIVE OPERATIONS (Immutable Plans) --- */}
+          <div className="bento-card" style={{ padding: 0, overflow: 'hidden', borderLeft: '4px solid #007AFF' }}>
+            <div className="label-xs" style={{ padding: '15px 20px', background: '#F9F9F9', color: '#007AFF', display: 'flex', justifyContent: 'space-between' }}>
+              <span>ACTIVE OPERATIONS (PLANS)</span>
+              <span style={{ fontSize: 9, opacity: 0.5 }}>IMMUTABLE FASE</span>
+            </div>
+            <table className="apple-table">
+            <thead>
+                <tr>
+                <th>DATE</th>
+                <th>TICKER</th>
+                <th>ACCOUNT</th>
+                <th>PLANNED RISK</th>
+                <th style={{ textAlign: 'right', paddingRight: '40px' }}>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {activeTrades.map(trade => (
+                <tr key={trade.id} className="hover-row">
+                    <td style={{ fontSize: '11px', color: '#86868B' }}>
+                      {new Date(trade.date).toLocaleDateString('nl-NL')} <br/>
+                      <span style={{ fontSize: '9px', opacity: 0.6 }}>{new Date(trade.date).toLocaleTimeString('nl-NL', {hour: '2-digit', minute:'2-digit'})}</span>
+                    </td>
+                    <td style={{ fontWeight: 700 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {trade.pair} 
+                        <span style={{ fontSize: 9, color: trade.direction === 'LONG' ? '#30D158' : '#FF3B30' }}>
+                        {trade.direction}
+                        </span>
+                    </div>
+                    </td>
+                    <td>
+                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{trade.accountName}</div>
+                    <div style={{ fontSize: '10px', color: '#86868B' }}>#{trade.accountNumber || 'N/A'}</div>
+                    </td>
+                    <td style={{ fontWeight: 700, fontSize: '14px' }}>${trade.risk}</td>
+                    <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+                        <button 
+                            onClick={() => openReviewModal(trade, true)} 
+                            style={{ 
+                                background: 'rgba(0, 122, 255, 0.05)', 
+                                border: '1px solid rgba(0, 122, 255, 0.1)', 
+                                borderRadius: '10px', 
+                                padding: '10px 14px', 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 6 
+                            }}
+                        >
+                            <Eye size={16} color="#007AFF" weight="bold" />
+                            <span style={{ fontSize: 11, fontWeight: 800, color: '#007AFF' }}>PEEK</span>
+                        </button>
+
+                        <button 
+                        onClick={(e) => { e.stopPropagation(); setClosingTrade(trade); }} 
+                        style={{ 
+                            background: 'rgba(0, 122, 255, 0.1)', 
+                            color: '#007AFF', 
+                            border: '1px solid rgba(0, 122, 255, 0.2)', 
+                            borderRadius: '12px', 
+                            padding: '12px 24px', 
+                            minWidth: '220px', 
+                            fontSize: 11, 
+                            fontWeight: 800, 
+                            letterSpacing: '0.5px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                        >
+                        CLOSE & REVIEW
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* --- FASE 2: READY FOR REVIEW (The Waiting Room) --- */}
+          {trades.filter(t => t.status === 'CLOSED' && !t.reviewCompleted).length > 0 && (
+            <div className="bento-card" style={{ padding: 0, overflow: 'hidden', borderLeft: '4px solid #FF9F0A' }}>
+  <div className="label-xs" style={{ padding: '15px 20px', background: '#FFFBF2', color: '#FF9F0A' }}>
+    ⚠️ PENDING BEHAVIORAL REVIEW
+  </div>
+  <table className="apple-table">
+    <thead>
+      <tr>
+        <th>DATE</th>
+        <th>TICKER</th>
+        <th>ACCOUNT</th>
+        <th>P&L</th>
+        <th style={{ textAlign: 'right', paddingRight: '40px' }}>ACTION</th>
+      </tr>
+    </thead>
+    <tbody>
+      {pendingReviewTrades.map(trade => (
+        <tr key={trade.id} className="hover-row">
+          <td style={{ fontSize: '11px', color: '#86868B' }}>
+            {new Date(trade.date).toLocaleDateString('nl-NL')} <br/>
+            <span style={{ fontSize: '9px', opacity: 0.6 }}>{new Date(trade.date).toLocaleTimeString('nl-NL', {hour: '2-digit', minute:'2-digit'})}</span>
+          </td>
+          <td style={{ fontWeight: 700 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {trade.pair} 
+              <span style={{ fontSize: 9, color: trade.direction === 'LONG' ? '#30D158' : '#FF3B30' }}>
+                {trade.direction}
+              </span>
+            </div>
+          </td>
+          <td>
+            <div style={{ fontWeight: 600, fontSize: '12px' }}>{trade.accountName}</div>
+            <div style={{ fontSize: '10px', color: '#86868B' }}>#{trade.accountNumber || 'N/A'}</div>
+          </td>
+          <td style={{ fontWeight: 800, fontSize: '14px', color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>
+            {trade.pnl >= 0 ? '+' : ''}${Number(trade.pnl || 0).toFixed(2)}
+          </td>
+          <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                        <button 
+                            onClick={() => openReviewModal(trade, false)}
+                            className="btn-primary" 
+                            style={{ 
+                            background: 'linear-gradient(135deg, #FF9F0A 0%, #FF3B30 100%)', 
+                            border: 'none', 
+                            padding: '12px 24px', 
+                            minWidth: '220px', // Exact dezelfde breedte als de blauwe knop
+                            fontSize: 11, 
+                            fontWeight: 800, 
+                            borderRadius: '12px',
+                            color: 'white',
+                            letterSpacing: '0.5px',
+                            boxShadow: '0 4px 15px rgba(255, 159, 10, 0.2)',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            COMPLETE REVIEW
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* --- FASE 3: RECENT HISTORY (Locked & Read-Only Archive) --- */}
+          <div className="bento-card" style={{ padding: 0, overflow: 'hidden', opacity: 0.85 }}>
+            <div className="label-xs" style={{ padding: '15px 20px', background: '#F9F9F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#86868B' }}>RECENT HISTORY (LOCKED)</span>
+              <button 
+                onClick={() => window.location.href = '/finance'} 
+                style={{ border: 'none', background: 'none', color: '#007AFF', fontSize: '10px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                VIEW FULL ARCHIVE <ArrowSquareOut size={12} />
+              </button>
+            </div>
+            <table className="apple-table">
+              <thead>
+                <tr>
+                  <th>DATE</th>
+                  <th>TICKER</th>
+                  <th>ACCOUNT</th>
+                  <th>NET P&L</th>
+                  <th style={{ textAlign: 'right', paddingRight: '40px' }}>ACTION</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyTrades.map(trade => (
+                  <tr key={trade.id} className="hover-row">
+                    <td style={{ fontSize: '11px', color: '#86868B' }}>
+                      {new Date(trade.date).toLocaleDateString('nl-NL')}
+                    </td>
+                    <td style={{ fontWeight: 700 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {trade.pair} 
+                        <span style={{ fontSize: 9, color: trade.direction === 'LONG' ? '#30D158' : '#FF3B30', opacity: 0.7 }}>
+                          {trade.direction}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: '12px', color: '#1C1C1E' }}>{trade.accountName}</div>
+                      <div style={{ fontSize: '10px', color: '#86868B' }}>#{trade.accountNumber || 'N/A'}</div>
+                    </td>
+                    <td style={{ fontWeight: 800, color: (trade.pnl || 0) >= 0 ? '#30D158' : '#FF453A' }}>
+                      ${Number(trade.pnl || 0).toFixed(2)}
+                    </td>
+                    <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+                        <ShieldCheck size={18} color="#30D158" weight="fill" />
+                        <button 
+                          onClick={() => openReviewModal(trade, true)}
+                          style={{ 
+                            background: 'rgba(142, 142, 147, 0.1)', 
+                            color: '#8E8E93', 
+                            border: '1px solid rgba(142, 142, 147, 0.2)', 
+                            borderRadius: '10px', 
+                            padding: '8px 18px', 
+                            minWidth: '220px', // Exact dezelfde breedte als de actieve knoppen voor strakke uitlijning
+                            fontSize: 10, 
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            transition: '0.2s'
+                          }}
+                        >
+                          VIEW ARCHIVE
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {closingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, padding: 20 }}>
-            <div className="bento-card" style={{ width: '100%', maxWidth: 380, padding: 30 }}>
-                <h3 style={{ margin:0, fontWeight:900, textAlign: 'center', marginBottom: 20 }}>Close Position</h3>
-                <div style={{ background: '#1C1C1E', color: 'white', padding: '20px', borderRadius: '16px', marginBottom: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 15, alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700, fontSize: 13, opacity: 0.8 }}>NET RESULT</span>
-                        <span style={{ fontWeight: 900, fontSize: 24, color: Number(closePnl) >= 0 ? '#30D158' : '#FF453A' }}>${closePnl || '0.00'}</span>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 420, padding: 30 }}>
+                <h3 style={{ margin:0, fontWeight:900, textAlign: 'center', marginBottom: 20 }}>Close {closingTrade.pair}</h3>
+                
+                {/* --- SUGGESTED MT5 EXECUTIONS --- */}
+                {incomingSyncs.filter(s => String(s.account_number) === String(closingTrade.accountNumber)).length > 0 && (
+                    <div style={{ marginBottom: 25, padding: '15px', background: '#FFFBF2', border: '1px solid #FF9F0A40', borderRadius: '14px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 900, color: '#FF9F0A', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Lightning size={14} weight="fill" /> MATCHING MT5 EXECUTIONS FOUND
+                        </div>
+                        <div style={{ display: 'grid', gap: 8 }}>
+                            {incomingSyncs
+                                .filter(s => String(s.account_number) === String(closingTrade.accountNumber))
+                                .map(sync => (
+                                    <div key={sync.id} onClick={() => handleSmartLink(closingTrade.id, sync)} style={{ background: 'white', padding: '10px', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', border: '1px solid #E5E5EA' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 800, fontSize: 13 }}>{sync.symbol}</div>
+                                            <div style={{ fontSize: 9, color: '#86868B' }}>Ticket #{sync.ticket}</div>
+                                        </div>
+                                        <div style={{ fontWeight: 800, color: Number(sync.pnl || sync.profit || 0) >= 0 ? '#30D158' : '#FF453A' }}>
+                                            ${Number(sync.pnl || sync.profit || 0).toFixed(2)}
+                                        </div>
+                                    </div>
+                                ))
+                            }
+                        </div>
                     </div>
-                </div>
+                )}
+
+                <div style={{ textAlign: 'center', fontSize: 11, color: '#86868B', marginBottom: 15 }}>OR ENTER MANUALLY</div>
+                
                 <form onSubmit={executeCloseTrade} style={{ display: 'grid', gap: 15 }}>
-                    <div className="input-group"><label className="input-label">Exit Price</label><input className="apple-input" type="number" step="any" autoFocus onFocus={handleFocus} value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} required /></div>
+                    <div className="input-group">
+                        <label className="input-label">Exit Price</label>
+                        <input className="apple-input" type="number" step="any" autoFocus onFocus={handleFocus} value={closeExitPrice} onChange={e => setCloseExitPrice(e.target.value)} required />
+                    </div>
+                    
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <div className="input-group"><label className="input-label">Gross P&L</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeGrossPnl} onChange={e => { setCloseGrossPnl(e.target.value); updateNetPnl(e.target.value, closeCommission); }} required /></div>
                         <div className="input-group"><label className="input-label">Commission</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={closeCommission} onChange={e => { setCloseCommission(e.target.value); updateNetPnl(closeGrossPnl, e.target.value); }} /></div>
                     </div>
-                    <button type="submit" className="btn-primary" style={{ height: 50, borderRadius: 16 }}>CONFIRM & POST</button>
-                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', color:'#86868B' }}>Cancel</button>
+
+                    <button type="submit" className="btn-primary" style={{ height: 50, borderRadius: 16, marginTop: 10 }}>CONFIRM & POST</button>
+                    <button type="button" onClick={() => setClosingTrade(null)} style={{ border:'none', background:'none', color:'#86868B', marginTop: 10 }}>Cancel</button>
                 </form>
             </div>
         </div>
       )}
-      
+
+      {/* --- SYNC DETAIL MODAL (FULL DATA VIEW) --- */}
+      {selectedSyncDetail && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(15px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:4000, padding: 20 }}>
+          <div className="bento-card" style={{ width: '100%', maxWidth: 450, padding: 0, overflow: 'hidden' }}>
+            
+            {/* Header: Ticker - Firm - P&L */}
+            <div style={{ padding: '25px', background: '#F9F9F9', borderBottom: '1px solid #E5E5EA', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 900 }}>{selectedSyncDetail.symbol}</div>
+                <div style={{ fontSize: 12, color: '#86868B', fontWeight: 600 }}>{selectedSyncDetail.firm} • Vol: {selectedSyncDetail.volume}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: Number(selectedSyncDetail.pnl || selectedSyncDetail.profit || 0) >= 0 ? '#30D158' : '#FF453A' }}>
+                {Number(selectedSyncDetail.pnl || selectedSyncDetail.profit || 0) >= 0 
+                    ? `+$${Number(selectedSyncDetail.pnl || selectedSyncDetail.profit || 0).toFixed(2)}` 
+                    : `-$${Math.abs(selectedSyncDetail.pnl || selectedSyncDetail.profit || 0).toFixed(2)}`}
+                </div>
+                <div style={{ fontSize: 10, color: '#86868B' }}>Ticket #{selectedSyncDetail.ticket}</div>
+              </div>
+            </div>
+
+            <div style={{ padding: '25px' }}>
+              {/* Prijs & Tijd Sectie */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 25 }}>
+                <div style={{ padding: '15px', background: '#F2F2F7', borderRadius: '14px' }}>
+                  <label style={{ fontSize: 10, fontWeight: 800, color: '#007AFF', display: 'block', marginBottom: 8 }}>OPEN EXECUTION</label>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{selectedSyncDetail.open_price || '---'}</div>
+                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 4 }}>{selectedSyncDetail.open_time}</div>
+                </div>
+                <div style={{ padding: '15px', background: '#F2F2F7', borderRadius: '14px' }}>
+                  <label style={{ fontSize: 10, fontWeight: 800, color: '#FF3B30', display: 'block', marginBottom: 8 }}>CLOSE EXECUTION</label>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{selectedSyncDetail.close_price || '---'}</div>
+                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 4 }}>{selectedSyncDetail.close_time}</div>
+                </div>
+              </div>
+
+              {/* Kosten Analyse */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 5px', borderBottom: '1px solid #F2F2F7', fontSize: 13 }}>
+                <span style={{ color: '#86868B' }}>Gross Profit</span>
+                <span style={{ fontWeight: 700 }}>${Number(selectedSyncDetail.pln || 0).toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 5px', borderBottom: '1px solid #F2F2F7', fontSize: 13 }}>
+                <span style={{ color: '#86868B' }}>Fees (Commission/Swap)</span>
+                <span style={{ fontWeight: 700, color: '#FF453A' }}>-${(Math.abs(selectedSyncDetail.commission || 0) + Math.abs(selectedSyncDetail.swap || 0)).toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Footer Acties */}
+            <div style={{ padding: '20px', background: '#F9F9F9', display: 'flex', gap: 12 }}>
+              <button onClick={() => setSelectedSyncDetail(null)} className="btn-ghost" style={{ flex: 1, background: 'white', borderRadius: '12px' }}>Cancel</button>
+              <select 
+                className="btn-primary" 
+                style={{ flex: 2, textAlign: 'center', cursor: 'pointer', borderRadius: '12px', appearance: 'none' }}
+                onFocus={(e) => e.target.size = 5}
+                onBlur={(e) => e.target.size = 1}
+                onChange={(e) => { if(e.target.value) { handleLinkTrade(e.target.value, selectedSyncDetail); setSelectedSyncDetail(null); } }}
+              >
+                <option value="">LINK TO PLAN</option>
+                {activeTrades.map(t => <option key={t.id} value={t.id}>{t.pair} ({t.direction})</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingTrade && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: 20 }}>
-            <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto' }}>
+            <div className="bento-card" style={{ width: '100%', maxWidth: 850, padding: 30, maxHeight:'90vh', overflowY:'auto', borderTop: `6px solid ${isReadOnlyMode ? '#30D158' : '#FF9F0A'}` }}>
+                
+                {/* HEADER MET STATUS INDICATOR */}
                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:25 }}>
                     <div>
-                        <h3 style={{ fontWeight: 900, margin:0 }}>Review: {editingTrade.pair}</h3>
-                        <span style={{ fontSize:10, color:'#86868B' }}>Method: {editingTrade.isAdvanced ? 'Advanced' : 'Lightning'} Entry</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                           <h3 style={{ fontWeight: 900, margin:0 }}>{isReadOnlyMode ? 'Trade Archive' : 'Final Behavioral Review'}: {editingTrade.pair}</h3>
+                           {isReadOnlyMode && <span style={{ background: '#30D15820', color: '#30D158', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>LOCKED RECORD</span>}
+                        </div>
+                        <span style={{ fontSize:10, color:'#86868B' }}>Method: {editingTrade.isAdvanced ? 'Advanced' : 'Lightning'} Entry • Plan ID: {editingTrade.id.slice(-6)}</span>
                     </div>
                     <button onClick={() => setEditingTrade(null)} style={{ border:'none', background:'none', cursor:'pointer' }}><X size={24}/></button>
                 </div>
 
+                {/* DASHBOARD BANNER (ALTIJD READ-ONLY) */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 15, marginBottom: 25 }}>
                     <div style={{ background: '#F2F2F7', padding: '15px', borderRadius: '14px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, fontWeight: 800, color: '#86868B', marginBottom: 4 }}>TOTAL COMMISSION</div>
                         <div style={{ fontSize: 18, fontWeight: 900, color: '#FF453A' }}>-{Math.abs(Number(editingTrade.commission || 0)).toFixed(2)}</div>
                     </div>
-                    <div style={{ background: '#007AFF', padding: '15px', borderRadius: '14px', textAlign: 'center', color: 'white' }}>
+                    <div style={{ background: isReadOnlyMode ? '#30D158' : '#007AFF', padding: '15px', borderRadius: '14px', textAlign: 'center', color: 'white' }}>
                         <div style={{ fontSize: 9, fontWeight: 800, opacity: 0.8, marginBottom: 4 }}>ACTUAL NET P&L</div>
-                        <div style={{ fontSize: 18, fontWeight: 900 }}>${Number(editingTrade.pnl || 0).toLocaleString('nl-NL')}</div>
+                        <div style={{ fontSize: 18, fontWeight: 900 }}>
+                           ${Number(editingTrade.pnl || editingTrade.profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </div>
                     </div>
                 </div>
                 
                 <form onSubmit={handleUpdateTrade}>
-                    {/* TCT FEEDBACK BLOK: BOVEN DE GRID */}
-                    {tctFeedback && (
-                        <div style={{ 
-                            marginBottom: '25px', 
-                            padding: '15px', 
-                            background: 'linear-gradient(135deg, #F0F9FF 0%, #E6F4FE 100%)', 
-                            borderLeft: '4px solid #007AFF', 
-                            borderRadius: '12px',
-                            color: '#0c4a6e',
-                            boxShadow: '0 4px 12px rgba(0, 122, 255, 0.08)',
-                            animation: 'fadeIn 0.5s ease-out'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                <Sparkle size={18} weight="fill" color="#007AFF" />
-                                <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>TCT Coach Feedback</span>
-                            </div>
-                            <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.5', fontStyle: 'italic', fontWeight: 500 }}>
-                                "{tctFeedback}"
-                            </p>
-                            <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-                        </div>
-                    )}
-
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: isMobile ? 20 : 40 }}>
-                        {/* LINKERKOLOM (Data) */}
+                        
+                        {/* LINKER KOLOM: THE PLAN VS REALITY */}
                         <div>
-                            <div className="label-xs" style={{color:'#007AFF', marginBottom: 15 }}>PRECISION & EXECUTION</div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15, padding: '15px', background: 'rgba(0, 122, 255, 0.05)', borderRadius: '14px' }}>
-                                <div className="input-group"><label className="input-label">Gross P&L</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.grossPnl ?? ''} onChange={e => setEditingTrade({...editingTrade, grossPnl: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">Commission</label><input className="apple-input" type="number" step="any" onFocus={handleFocus} value={editingTrade.commission ?? ''} onChange={e => setEditingTrade({...editingTrade, commission: e.target.value})} /></div>
+                            <div className="label-xs" style={{color:'#007AFF', marginBottom: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <ShieldCheck size={14} weight="fill" /> 1. THE PLAN (PRE-TRADE)
                             </div>
-                            <div className="input-group" style={{ marginBottom: 15 }}><label className="input-label">Trade Date</label><input type="date" className="apple-input" value={editingTrade.date || ''} onChange={e => setEditingTrade({...editingTrade, date: e.target.value})} /></div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group"><label className="input-label">Entry</label><input onFocus={handleFocus} className="apple-input" type="number" step="any" value={editingTrade.entryPrice || ''} onChange={e => setEditingTrade({...editingTrade, entryPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">SL</label><input onFocus={handleFocus} className="apple-input" type="number" step="any" value={editingTrade.slPrice || ''} onChange={e => setEditingTrade({...editingTrade, slPrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">TP</label><input onFocus={handleFocus} className="apple-input" type="number" step="any" value={editingTrade.tpPrice || ''} onChange={e => setEditingTrade({...editingTrade, tpPrice: e.target.value})} /></div>
+                            
+                            {/* PRE-TRADE DATA (READ-ONLY) */}
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20, padding: '12px', background: '#F9F9F9', borderRadius: '12px', border: '1px solid #E5E5EA' }}>
+                                <div className="input-group"><label style={{fontSize: 9, opacity: 0.6}}>Planned Entry</label><div style={{ fontWeight: 700, fontSize: 13 }}>{editingTrade.entryPrice || '---'}</div></div>
+                                <div className="input-group"><label style={{fontSize: 9, opacity: 0.6}}>Planned SL</label><div style={{ fontWeight: 700, fontSize: 13, color: '#FF453A' }}>{editingTrade.slPrice || '---'}</div></div>
+                                <div className="input-group"><label style={{fontSize: 9, opacity: 0.6}}>Planned TP</label><div style={{ fontWeight: 700, fontSize: 13, color: '#30D158' }}>{editingTrade.tpPrice || '---'}</div></div>
                             </div>
-                            <div className="input-group" style={{ marginBottom: 15 }}>
+
+                            <div className="label-xs" style={{color:'#30D158', marginBottom: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Lightning size={14} weight="fill" /> 2. THE REALITY (MT5 DATA)
+                            </div>
+
+                            {/* REAL EXECUTION DATA [cite: 2026-01-04] */}
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15, padding: '12px', background: 'rgba(48, 209, 88, 0.05)', borderRadius: '12px', border: '1px solid rgba(48, 209, 88, 0.2)' }}>
+                                <div className="input-group">
+                                    <label style={{fontSize: 9, fontWeight: 800}}>Actual Entry</label>
+                                    <div style={{ fontWeight: 800 }}>{editingTrade.open_price || editingTrade.entryPrice || '---'}</div>
+                                </div>
+                                <div className="input-group">
+                                    <label style={{fontSize: 9, fontWeight: 800}}>Actual Final Exit</label>
+                                    <div style={{ fontWeight: 800 }}>{editingTrade.close_price || (editingTrade.actualExits?.[0]?.price) || '---'}</div>
+                                </div>
+                            </div>
+
+                            {/* PARTIAL EXITS / EXTRA TP'S [cite: 2026-01-04] */}
+                            <div className="input-group" style={{ marginBottom: 20 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <label className="input-label" style={{ margin:0 }}>Exit Prices</label>
-                                    <PlusCircle size={18} color="#007AFF" weight="fill" style={{ cursor: 'pointer' }} onClick={() => setEditingTrade({...editingTrade, actualExits: [...(editingTrade.actualExits || []), { price: '' }]})} />
+                                    <label className="input-label" style={{ margin:0 }}>Partial Exits / Scales</label>
+                                    {!isReadOnlyMode && <PlusCircle size={18} color="#007AFF" weight="fill" style={{ cursor: 'pointer' }} onClick={() => setEditingTrade({...editingTrade, actualExits: [...(editingTrade.actualExits || []), { price: '' }]})} />}
                                 </div>
                                 <div style={{ display: 'grid', gap: 8 }}>
                                     {(editingTrade.actualExits || []).map((ex, idx) => (
                                         <div key={idx} style={{ display: 'flex', gap: 8 }}>
-                                            <input onFocus={handleFocus} className="apple-input" placeholder={`Exit ${idx + 1}`} type="number" step="any" value={ex.price} onChange={(e) => {
-                                                const exits = [...editingTrade.actualExits];
-                                                exits[idx].price = e.target.value;
-                                                setEditingTrade({...editingTrade, actualExits: exits});
-                                            }} />
+                                            <input 
+                                                className="apple-input" 
+                                                placeholder={`Exit Price ${idx + 1}`} 
+                                                type="number" 
+                                                step="any" 
+                                                readOnly={isReadOnlyMode}
+                                                style={{ background: isReadOnlyMode ? '#F2F2F7' : 'white', fontSize: 12 }}
+                                                value={ex.price} 
+                                                onChange={(e) => {
+                                                    const exits = [...editingTrade.actualExits];
+                                                    exits[idx].price = e.target.value;
+                                                    setEditingTrade({...editingTrade, actualExits: exits});
+                                                }} 
+                                            />
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:15 }}>
-                                <div className="input-group"><label className="input-label">MAE Price <FieldInfo title="MAE" text="Worst price reached while in trade."/></label><input onFocus={handleFocus} className="apple-input" type="number" value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} /></div>
-                                <div className="input-group"><label className="input-label">MFE Price <FieldInfo title="MFE" text="Best price reached while in trade."/></label><input onFocus={handleFocus} className="apple-input" type="number" value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} /></div>
+
+                            <div className="label-xs" style={{color:'#86868B', marginBottom: 15 }}>3. SHADOW METRICS</div>
+
+                            <div className="label-xs" style={{color:'#86868B', marginBottom: 15, marginTop: 25 }}>EXECUTION METRICS</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 15 }}>
+                                <div className="input-group">
+                                    <label className="input-label">MAE Price <FieldInfo title="MAE" text="Worst price during trade." /></label>
+                                    <input className="apple-input" type="number" readOnly={isReadOnlyMode} style={{ background: isReadOnlyMode ? '#F2F2F7' : 'white' }} value={editingTrade.maePrice || ''} onChange={e => setEditingTrade({...editingTrade, maePrice: e.target.value})} placeholder="Worst Price" />
+                                </div>
+                                <div className="input-group">
+                                    <label className="input-label">MFE Price <FieldInfo title="MFE" text="Best price during trade." /></label>
+                                    <input className="apple-input" type="number" readOnly={isReadOnlyMode} style={{ background: isReadOnlyMode ? '#F2F2F7' : 'white' }} value={editingTrade.mfePrice || ''} onChange={e => setEditingTrade({...editingTrade, mfePrice: e.target.value})} placeholder="Best Price" />
+                                </div>
+                            </div>
+
+                            {/* EXIT PRICES SECTIE */}
+                            <div className="input-group">
+                                <label className="input-label">Actual Exits</label>
+                                {(editingTrade.actualExits || []).map((ex, idx) => (
+                                    <input key={idx} className="apple-input" readOnly={true} style={{ background: '#F2F2F7', marginBottom: 5 }} value={ex.price} />
+                                ))}
                             </div>
                         </div>
 
-                        {/* RECHTERKOLOM (Behavior & AI) */}
+                        {/* RECHTER KOLOM: BEHAVIORAL (EDITABLE UNLESS LOCKED) [cite: 2026-01-01] */}
                         <div>
                             <div className="label-xs" style={{color:'#FF9F0A', marginBottom: 15 }}>BEHAVIORAL REVIEW</div>
                             
                             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:20 }}>
                                 {(config.mistakes || []).map(m => (
-                                    <button key={m} type="button" onClick={() => {
+                                    <button key={m} type="button" disabled={isReadOnlyMode} onClick={() => {
                                         const cur = editingTrade.mistake || [];
                                         setEditingTrade({...editingTrade, mistake: cur.includes(m) ? cur.filter(x => x !== m) : [...cur, m]});
-                                    }} style={{ border: (editingTrade.mistake || []).includes(m) ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: (editingTrade.mistake || []).includes(m) ? 'rgba(255, 59, 48, 0.1)' : 'white', padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{m}</button>
+                                    }} style={{ border: (editingTrade.mistake || []).includes(m) ? '1px solid #FF3B30' : '1px solid #E5E5EA', background: (editingTrade.mistake || []).includes(m) ? 'rgba(255, 59, 48, 0.1)' : 'white', padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 600, opacity: isReadOnlyMode && !(editingTrade.mistake || []).includes(m) ? 0.3 : 1 }}>{m}</button>
                                 ))}
                             </div>
 
                             <div className="input-group" style={{ marginBottom: 20 }}><label className="input-label">Emotion</label>
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:5}}>
-                                    {EMOTIONS.map(em => <div key={em.label} onClick={() => setEditingTrade({...editingTrade, emotion: em.label})} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, textAlign:'center', cursor:'pointer' }}>{em.icon}</div>)}
+                                    {EMOTIONS.map(em => <div key={em.label} style={{ border: editingTrade.emotion === em.label ? `2px solid ${em.color}` : '1px solid #E5E5EA', padding:10, borderRadius:12, textAlign:'center', cursor: isReadOnlyMode ? 'default' : 'pointer', opacity: isReadOnlyMode && editingTrade.emotion !== em.label ? 0.3 : 1 }} onClick={() => !isReadOnlyMode && setEditingTrade({...editingTrade, emotion: em.label})}>{em.icon}</div>)}
                                 </div>
                             </div>
 
-                            <VoiceNoteInput 
-                              tradeContext={editingTrade} 
-                              onTranscriptionComplete={(text) => {
-                                setEditingTrade(prev => ({ ...prev, notes: text }));
-                              }}
-                              onFeedbackReceived={(feedback, extraData) => {
-                                  setTctFeedback(feedback);
-                                  setEditingTrade(prev => ({ 
-                                      ...prev, 
-                                      aiFeedback: feedback,
-                                      mindsetScore: extraData.score, 
-                                      emotionTag: extraData.emotion,
-                                      shadowAnalysis: extraData.shadow
-                                  }));
-                              }}
-                            />
+                            <VoiceNoteInput tradeContext={editingTrade} onTranscriptionComplete={(text) => !isReadOnlyMode && setEditingTrade({...editingTrade, notes: text})} />
                             
-                            <div className="input-group">
-                                <label className="input-label">
-                                    {tctFeedback ? "AI Journal Summary (Locked)" : "Notes"}
-                                </label>
-                                <textarea 
-                                    className="apple-input" 
-                                    rows={3} 
-                                    value={editingTrade.notes || ''} 
-                                    onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} 
-                                    placeholder="Notes or voice summary..." 
-                                    readOnly={!!tctFeedback}
-                                    style={{ 
-                                        background: tctFeedback ? '#F5F5F7' : 'white',
-                                        color: tctFeedback ? '#1D1D1F' : 'inherit',
-                                        cursor: tctFeedback ? 'not-allowed' : 'text'
-                                    }}
-                                />
-                            </div>
+                            <textarea className="apple-input" readOnly={isReadOnlyMode} rows={4} value={editingTrade.notes || ''} onChange={e => setEditingTrade({...editingTrade, notes: e.target.value})} placeholder="Final reflections..." style={{ background: isReadOnlyMode ? '#F2F2F7' : 'white' }} />
                         </div>
                     </div>
-                    <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:30, height: 50, fontWeight: 800 }}>FINALIZE REVIEW</button>
+
+                    {/* DYNAMISCHE BUTTON ONDERAAN */}
+                    {!isReadOnlyMode ? (
+                        <button type="submit" className="btn-primary" style={{ width:'100%', marginTop:30, height: 50, fontWeight: 800 }}>FINALIZE & LOCK REVIEW</button>
+                    ) : (
+                        <div style={{ marginTop: 30, padding: '15px', background: '#F2F2F7', borderRadius: '12px', textAlign: 'center', color: '#86868B', fontWeight: 700, border: '1px dashed #CCC' }}>
+                            <ShieldCheck size={20} weight="fill" color="#30D158" style={{ marginBottom: 4 }} /> <br/> ARCHIVED RECORD (IMMUTABLE)
+                        </div>
+                    )}
                 </form>
             </div>
         </div>

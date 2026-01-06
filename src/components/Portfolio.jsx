@@ -4,7 +4,7 @@ import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateD
 import AccountIntelligenceReport from './AccountIntelligenceReport';
 import { 
   Trash, MagnifyingGlass, X, PlusCircle, ShieldWarning, 
-  Calendar, Funnel, Hash, Percent, Microphone, Waveform, Stop, Gear, Sparkle
+  Calendar, Funnel, Hash, Percent, Microphone, Waveform, Stop, Gear, Sparkle, MagicWand, CurrencyCircleDollar
 } from '@phosphor-icons/react';
 
 const ACCOUNT_TYPES = ["Normal", "Swing", "Intraday (No Weekend)", "Raw Spread"];
@@ -22,6 +22,7 @@ export default function Portfolio() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [incomingSyncs, setIncomingSyncs] = useState([]);
   
   // Shadow Audit States
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -63,8 +64,16 @@ export default function Portfolio() {
   }, []);
 
   useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const qSync = query(collection(db, "users", user.uid, "incoming_syncs"), orderBy("syncedAt", "desc"));
+    return onSnapshot(qSync, (snap) => {
+      setIncomingSyncs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  }, []);
+
+  useEffect(() => {
     const pendingId = localStorage.getItem('pendingUpgradeId');
-    // We checken of er een ID is EN of de accounts geladen zijn
     if (pendingId && accounts.length > 0) {
         const accToUpgrade = accounts.find(a => a.id === pendingId);
         if (accToUpgrade) {
@@ -75,13 +84,13 @@ export default function Portfolio() {
                 profitTarget: accToUpgrade.profitTarget, 
                 maxDrawdown: accToUpgrade.maxDrawdown 
             });
-            setIsUpgrading(true); // Dit opent de pop-up
+            setIsUpgrading(true);
         }
-        localStorage.removeItem('pendingUpgradeId'); // Wis het direct
+        localStorage.removeItem('pendingUpgradeId');
     }
-}, [accounts]); // Belangrijk: hij moet luisteren naar 'accounts'
+  }, [accounts]);
 
-  // --- HYBRIDE VOICE LOGICA ---
+  // --- LOGICA HELPERS ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -105,78 +114,46 @@ export default function Portfolio() {
   };
 
   const handleVoiceAuditTranscription = async (blob) => {
-  setIsAnalyzing(true);
-  
-  // Zoek het account (Archived = zojuist gepromoveerd succes)
-  const targetAcc = accounts.find(acc => 
-    (acc.stage === 'Archived' || acc.stage === 'Breached' || acc.stage === 'Funded') && !acc.postMortemCompleted
-  );
-  
-  if (!targetAcc) {
-    setIsAnalyzing(false);
-    return;
-  }
+    setIsAnalyzing(true);
+    const targetAcc = accounts.find(acc => (acc.stage === 'Archived' || acc.stage === 'Breached' || acc.stage === 'Funded') && !acc.postMortemCompleted);
+    if (!targetAcc) { setIsAnalyzing(false); return; }
 
-  const formData = new FormData();
-  formData.append('audio', blob, 'audit.webm');
-  formData.append('accountContext', JSON.stringify({ 
-    accountId: targetAcc.id,
-    firm: targetAcc.firm, 
-    size: targetAcc.size,
-    // We sturen alles in het Engels voor de AI
-    status: targetAcc.stage === 'Archived' || targetAcc.stage === 'Funded' ? 'PASSED' : 'BREACHED', 
-    initialMistake: primaryMistake || 'N/A',
-    auditType: targetAcc.stage === 'Archived' || targetAcc.stage === 'Funded' ? 'PROFESSIONAL_SUCCESS_REVIEW' : 'SHADOW_FAILURE_AUDIT',
-    // Extra vlag om specifiek te vragen naar gokgedrag/V-curves
-    analysisFocus: "Verify if the success was due to systematic process or emotional gambling (V-curves/over-leveraging)."
-  }));
+    const formData = new FormData();
+    formData.append('audio', blob, 'audit.webm');
+    formData.append('accountContext', JSON.stringify({ 
+      accountId: targetAcc.id,
+      firm: targetAcc.firm, 
+      size: targetAcc.size,
+      status: targetAcc.stage === 'Archived' || targetAcc.stage === 'Funded' ? 'PASSED' : 'BREACHED', 
+      initialMistake: primaryMistake || 'N/A',
+      auditType: targetAcc.stage === 'Archived' || targetAcc.stage === 'Funded' ? 'PROFESSIONAL_SUCCESS_REVIEW' : 'SHADOW_FAILURE_AUDIT'
+    }));
 
-  try {
-    const response = await fetch('https://europe-west1-bewustetrader.cloudfunctions.net/analyzeShadowAudit', {
-      method: 'POST',
-      headers: { 'x-user-uid': auth.currentUser.uid },
-      body: formData, 
-    });
-
-    if (!response.ok) throw new Error("AI Server Error");
-
-    const result = await response.json();
-    setReflectionSummary(result.reflection_summary);
-    setAiAnalysisData(result);
-  } catch (err) {
-    console.error("Audit failed:", err);
-    alert("Connection to Intelligence Hub lost. Please try again.");
-  } finally {
-    setIsAnalyzing(false);
-  }
-};
+    try {
+      const response = await fetch('https://europe-west1-bewustetrader.cloudfunctions.net/analyzeShadowAudit', {
+        method: 'POST',
+        headers: { 'x-user-uid': auth.currentUser.uid },
+        body: formData, 
+      });
+      const result = await response.json();
+      setReflectionSummary(result.reflection_summary);
+      setAiAnalysisData(result);
+    } catch (err) { console.error("Audit failed:", err); } finally { setIsAnalyzing(false); }
+  };
 
   const finalizeAudit = async (accountId) => {
     try {
       const user = auth.currentUser;
       const targetAcc = accounts.find(a => a.id === accountId);
-      
-      // We slaan de volledige AI-analyse (auditResult) op in Firestore
       await updateDoc(doc(db, "users", user.uid, "accounts", accountId), {
         status: targetAcc.stage === 'Funded' ? 'Active' : 'Inactive',
         postMortemCompleted: true,
-        postMortemData: {
-          ...aiAnalysisData, // Dit bevat nu the_mirror, account_grade, adaptive_rule_prescribed etc.
-          timestamp: new Date(),
-        }
+        postMortemData: { ...aiAnalysisData, timestamp: new Date() }
       });
-      
-      // Reset states voor de volgende keer
-      setPrimaryMistake(''); 
-      setReflectionSummary(''); 
-      setAiAnalysisData(null);
-    } catch (err) { 
-      console.error("Failed to save audit:", err); 
-      alert("Fout bij het opslaan van het rapport.");
-    }
+      setPrimaryMistake(''); setReflectionSummary(''); setAiAnalysisData(null);
+    } catch (err) { console.error("Failed to save audit:", err); }
   };
 
-  // --- EXISTING ACCOUNT HELPERS ---
   const updateFromPct = (type, pctValue) => {
     const size = Number(form.size);
     if (!size) return;
@@ -199,6 +176,8 @@ export default function Portfolio() {
       ...form,
       balance: Number(form.size), startBalance: Number(form.size),
       profitTarget: Number(form.profitTarget), maxDrawdown: Number(form.maxDrawdown),
+      originalPrice: Number(form.originalPrice || 0),
+      purchaseCurrency: form.purchaseCurrency,        
       status: 'Active', createdAt: new Date()
     });
     setForm({ ...form, firm: '', size: '', originalPrice: '', accountNumber: '', profitTarget: '', maxDrawdown: '', targetPct: '', ddPct: '' });
@@ -232,51 +211,88 @@ export default function Portfolio() {
   return (
     <div style={{ padding: isMobile ? '20px 15px' : '40px 20px', maxWidth: 1200, margin: '0 auto', paddingBottom: 100 }}>
       
-      <div style={{ marginBottom: 30 }}>
-        <h1 style={{ fontSize: isMobile ? '26px' : '32px', fontWeight: 800, margin: 0, letterSpacing: '-1px' }}>Portfolio Vault</h1>
-        <p style={{ color: '#86868B', fontSize: '14px' }}>Strategic account management.</p>
+      {/* 3. CSS VOOR PULSE ANIMATIE */}
+      <style>{`
+        @keyframes sync-breath {
+          0% { opacity: 0.4; transform: scale(0.98); }
+          50% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0.4; transform: scale(0.98); }
+        }
+        .sync-pulse { animation: sync-breath 2s infinite ease-in-out; }
+      `}</style>
+      
+      <div style={{ marginBottom: 30, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 15 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+          <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Portfolio Vault</h1>
+          
+          {/* SUBTIELE MAGIC FILL BADGE NAAST TITEL */}
+          {[...new Set(incomingSyncs.map(t => t.account_number))].filter(num => !accounts.some(acc => acc.accountNumber === String(num))).slice(0,1).map(unknownNum => (
+            <div 
+              key={unknownNum}
+              onClick={() => {
+                const incomingData = incomingSyncs.find(t => String(t.account_number) === String(unknownNum));
+                if (incomingData) {
+                  setForm({ ...form, accountNumber: String(unknownNum), firm: incomingData.firm || "", size: incomingData.balance || "", accountCurrency: incomingData.currency || "USD" });
+                }
+              }}
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: 6, background: '#EEF6FF', color: '#007AFF', 
+                padding: '6px 12px', borderRadius: '100px', cursor: 'pointer', border: '1px solid #CCE4FF',
+                fontSize: '11px', fontWeight: 700, transition: '0.2s'
+              }}
+            >
+              <Sparkle size={14} weight="fill" />
+              <span>Magic Fill: {unknownNum}</span>
+            </div>
+          ))}
+        </div>
+        {!isMobile && <p style={{ color: '#86868B', fontSize: 14, margin: 0 }}>Strategic account management.</p>}
       </div>
 
-      {/* NEW ACCOUNT REGISTRATION */}
+      {/* 2. MOBIELE GRID OPTIMALISATIE IN NEW ACCOUNT REGISTRATION */}
       <div className="bento-card" style={{ marginBottom: 35, borderTop: '4px solid #007AFF', padding: 25 }}>
         <div style={{ fontSize: 10, fontWeight: 900, color: '#007AFF', marginBottom: 20, letterSpacing: '1px' }}>NEW ACCOUNT</div>
         <form onSubmit={handleAddAccount}>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr 1fr', gap: 15, marginBottom: 20 }}>
-                <div className="input-group"><label className="input-label">Prop Firm</label><input className="apple-input" placeholder="FTMO, etc." value={form.firm} onChange={e => setForm({...form, firm: e.target.value})} required /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 15, marginBottom: 20 }}>
+                <div className="input-group" style={{ gridColumn: isMobile ? 'span 2' : 'auto' }}><label className="input-label">Prop Firm</label><input className="apple-input" placeholder="FTMO, etc." value={form.firm} onChange={e => setForm({...form, firm: e.target.value})} required /></div>
                 <div className="input-group"><label className="input-label">Stage</label><select className="apple-input" value={form.stage} onChange={e => setForm({...form, stage: e.target.value})}>{CREATE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                 <div className="input-group"><label className="input-label">Login ID</label><input className="apple-input" placeholder="ID" value={form.accountNumber} onChange={e => setForm({...form, accountNumber: e.target.value})} /></div>
-                <div className="input-group"><label className="input-label">Purchase Date</label><input type="date" className="apple-input" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} /></div>
+                <div className="input-group" style={{ gridColumn: isMobile ? 'span 2' : 'auto' }}><label className="input-label">Purchase Date</label><input type="date" className="apple-input" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} /></div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1.2fr 1.2fr 1fr', gap: 15, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1.2fr 1.2fr 1.2fr 0.8fr', gap: 15, alignItems: 'end' }}>
                 <div className="input-group">
-                    <label className="input-label">Size ({form.accountCurrency})</label>
+                    <label className="input-label">Size</label>
                     <div style={{ display:'flex' }}>
-                        <select className="apple-input" style={{ width: 60, borderRight:'none', borderRadius:'8px 0 0 8px', background:'#F2F2F7' }} value={form.accountCurrency} onChange={e => setForm({...form, accountCurrency: e.target.value})}><option value="USD">$</option><option value="EUR">€</option></select>
-                        <input className="apple-input" style={{ borderRadius:'0 8px 8px 0' }} type="number" placeholder="100000" value={form.size} onChange={e => setForm({...form, size: e.target.value})} required />
+                        <select className="apple-input" style={{ width: 55, borderRight:'none', borderRadius:'8px 0 0 8px', background:'#F5F5F7', fontSize: 11 }} value={form.accountCurrency} onChange={e => setForm({...form, accountCurrency: e.target.value})}><option value="USD">$</option><option value="EUR">€</option><option value="GBP">£</option></select>
+                        <input className="apple-input" style={{ borderRadius:'0 8px 8px 0' }} type="number" placeholder="Size" value={form.size} onChange={e => setForm({...form, size: e.target.value})} required />
                     </div>
                 </div>
                 <div className="input-group">
-                    <label className="input-label">{form.stage === 'Funded' ? 'Withdrawal Goal' : 'Profit Target'}</label>
+                    <label className="input-label">Target</label>
                     <div style={{ display:'flex', gap: 5 }}>
                         <input className="apple-input" style={{ flex: 2 }} type="number" value={form.profitTarget} onChange={e => updateFromAmount('profitTarget', e.target.value)} />
-                        <div style={{ position:'relative', flex: 1 }}>
-                            <input className="apple-input" type="number" value={form.targetPct} onChange={e => updateFromPct('profitTarget', e.target.value)} />
-                            <span style={{ position:'absolute', right:8, top:10, fontSize:10, color:'#86868B' }}>%</span>
-                        </div>
+                        <div style={{ position:'relative', flex: 1.2 }}><input className="apple-input" type="number" value={form.targetPct} onChange={e => updateFromPct('profitTarget', e.target.value)} /><span style={{ position:'absolute', right:6, top:10, fontSize:9, color:'#86868B' }}>%</span></div>
                     </div>
                 </div>
                 <div className="input-group">
-                    <label className="input-label">Max Drawdown</label>
+                    <label className="input-label">Max DD</label>
                     <div style={{ display:'flex', gap: 5 }}>
                         <input className="apple-input" style={{ flex: 2 }} type="number" value={form.maxDrawdown} onChange={e => updateFromAmount('maxDrawdown', e.target.value)} />
-                        <div style={{ position:'relative', flex: 1 }}>
-                            <input className="apple-input" type="number" value={form.ddPct} onChange={e => updateFromPct('maxDrawdown', e.target.value)} />
-                            <span style={{ position:'absolute', right:8, top:10, fontSize:10, color:'#86868B' }}>%</span>
-                        </div>
+                        <div style={{ position:'relative', flex: 1.2 }}><input className="apple-input" type="number" value={form.ddPct} onChange={e => updateFromPct('maxDrawdown', e.target.value)} /><span style={{ position:'absolute', right:6, top:10, fontSize:9, color:'#86868B' }}>%</span></div>
                     </div>
                 </div>
-                <button type="submit" className="btn-primary" style={{ height: 44, fontWeight: 700 }}>Add Account</button>
+
+                {/* --- NIEUW: PURCHASE PRICE + CURRENCY --- [cite: 2026-01-04] */}
+                <div className="input-group">
+                    <label className="input-label">Cost Price</label>
+                    <div style={{ display:'flex' }}>
+                        <select className="apple-input" style={{ width: 55, borderRight:'none', borderRadius:'8px 0 0 8px', background:'#F5F5F7', fontSize: 11 }} value={form.purchaseCurrency} onChange={e => setForm({...form, purchaseCurrency: e.target.value})}><option value="USD">$</option><option value="EUR">€</option><option value="GBP">£</option></select>
+                        <input className="apple-input" style={{ borderRadius:'0 8px 8px 0' }} type="number" placeholder="Price" value={form.originalPrice} onChange={e => setForm({...form, originalPrice: e.target.value})} />
+                    </div>
+                </div>
+
+                <button type="submit" className="btn-primary" style={{ height: 44, fontWeight: 700 }}>Add</button>
             </div>
         </form>
       </div>
@@ -300,22 +316,24 @@ export default function Portfolio() {
           <table className="apple-table">
               <thead><tr>{!isMobile && <th>Date</th>}<th>Account</th><th>Status</th><th>Targets</th><th style={{ width:50 }}></th></tr></thead>
               <tbody>
-  {filteredAccounts.map(acc => {
-    const hasPassed = acc.balance >= (Number(acc.startBalance) + Number(acc.profitTarget)) && ['Phase 1', 'Phase 2'].includes(acc.stage);
-    return (
-      <tr 
-        key={acc.id} 
-        /* De hele rij is klikbaar voor de modal (Lees-modus) */
-        onClick={() => openAccountModal(acc)} 
-        className="hover-row" 
-        style={{ cursor: 'pointer', opacity: acc.stage === 'Breached' ? 0.4 : 1 }}
-      >
-        {!isMobile && <td style={{ fontSize: 11, color: '#86868B' }}>{acc.purchaseDate}</td>}
-        <td>
-          <div style={{ fontWeight: 700 }}>{acc.firm}</div>
-          <div style={{ fontSize: 10, color: '#86868B' }}>ID: {acc.accountNumber || 'N/A'} • {formatAcc(acc.startBalance, acc.accountCurrency)}</div>
-        </td>
-        <td>
+                {filteredAccounts.map(acc => {
+                  const hasPassed = acc.balance >= (Number(acc.startBalance) + Number(acc.profitTarget)) && ['Phase 1', 'Phase 2'].includes(acc.stage);
+                  return (
+                    <tr key={acc.id} onClick={() => openAccountModal(acc)} className="hover-row" style={{ cursor: 'pointer', opacity: acc.stage === 'Breached' ? 0.4 : 1 }}>
+                      {!isMobile && <td style={{ fontSize: 11, color: '#86868B' }}>{acc.purchaseDate}</td>}
+                      <td>
+                        <div style={{ fontWeight: 700 }}>{acc.firm}</div>
+                        <div style={{ fontSize: 10, color: '#86868B', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          ID: {acc.accountNumber || 'N/A'} • {formatAcc(acc.startBalance, acc.accountCurrency)}
+                          {/* SYNC INDICATOR */}
+                          {incomingSyncs.some(t => String(t.account_number) === String(acc.accountNumber)) && (
+                            <span className="sync-pulse" style={{ color: '#007AFF', display: 'flex', alignItems: 'center', gap: 2, fontWeight: 800, marginLeft: 5 }}>
+                              <Waveform size={12} weight="bold" /> SYNC READY
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
   {hasPassed ? (
     <button 
       onClick={(e) => { 

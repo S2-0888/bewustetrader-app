@@ -4,11 +4,12 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { 
   Brain, Warning, Target, Quotes, ShieldCheck, 
-  TrendDown, Info, ShieldWarning, X, ShieldStar, FileText, CaretRight
+  TrendDown, Info, ShieldWarning, X, ShieldStar, 
+  FileText, CaretRight, ChartPieSlice, Clock, Lightning 
 } from '@phosphor-icons/react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
-  Tooltip, Cell 
+  Tooltip, Cell, PieChart, Pie 
 } from 'recharts';
 import AccountIntelligenceReport from './AccountIntelligenceReport';
 
@@ -74,11 +75,11 @@ const InfoBadge = ({ title, text }) => {
   );
 };
 
-export default function Insights({ setView }) { // Voeg setView toe als prop om navigatie mogelijk te maken
+export default function Insights({ setView }) {
   const [accounts, setAccounts] = useState([]);
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAudit, setSelectedAudit] = useState(null); // Voor het rapport-detail
+  const [selectedAudit, setSelectedAudit] = useState(null);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -97,29 +98,20 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
     return () => { unsubAcc(); unsubTrades(); };
   }, []);
 
-  // --- LOGICA: PENDING AUDITS (VLUCHTGEDRAG) ---
   const pendingAudits = accounts.filter(acc => acc.stage === 'Breached' && !acc.postMortemCompleted);
+  const auditedAccounts = accounts.filter(a => a.postMortemCompleted === true && (a.postMortemData || a.auditAnswers));
 
-  // --- LOGICA: LEAK DETECTION ---
-  // Haal alle accounts op die een voltooide audit hebben (zowel Breached als Passed)
-  const auditedAccounts = accounts.filter(a => 
-    a.postMortemCompleted === true && (a.postMortemData || a.auditAnswers)
-  );
-
-  // Filter specifiek voor de Capital Leaks grafiek (alleen Breached)
-    const leakData = accounts.filter(a => a.stage === 'Breached' && a.postMortemData).reduce((acc, curr) => {
+  const leakData = accounts.filter(a => a.stage === 'Breached' && a.postMortemData).reduce((acc, curr) => {
     const mistake = curr.postMortemData.primaryMistake || 'Unknown';
     const existing = acc.find(item => item.name === mistake);
     if (existing) {
       existing.value += Number(curr.size || 0);
-      existing.count += 1;
     } else {
-      acc.push({ name: mistake, value: Number(curr.size || 0), count: 1 });
+      acc.push({ name: mistake, value: Number(curr.size || 0) });
     }
     return acc;
   }, []).sort((a, b) => b.value - a.value);
 
-  // --- LOGICA: STRATEGY ALPHA ---
   const strategyStats = trades.filter(t => t.status === 'CLOSED').reduce((acc, t) => {
     const strat = t.strategy || 'General';
     const existing = acc.find(item => item.name === strat);
@@ -130,10 +122,34 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
       existing.totalPnl += pnl;
       existing.totalDisc += disc;
       existing.trades += 1;
-      if (pnl > 0) existing.wins += 1;
     } else {
-      acc.push({ name: strat, totalPnl: pnl, totalDisc: disc, trades: 1, wins: pnl > 0 ? 1 : 0 });
+      acc.push({ name: strat, totalPnl: pnl, totalDisc: disc, trades: 1 });
     }
+    return acc;
+  }, []);
+
+  const closedTrades = trades.filter(t => t.status === 'CLOSED');
+
+  const biasData = closedTrades.reduce((acc, t) => {
+    const side = (t.side?.toUpperCase().includes('BUY') || t.side?.toUpperCase().includes('LONG')) ? 'Longs' : 'Shorts';
+    const existing = acc.find(item => item.name === side);
+    if (existing) {
+      existing.total += 1; 
+      if (Number(t.pnl) > 0) existing.wins += 1;
+    } else {
+      acc.push({ name: side, total: 1, wins: Number(t.pnl) > 0 ? 1 : 0 });
+    }
+    return acc;
+  }, []);
+
+  const sessionData = closedTrades.reduce((acc, t) => {
+    const hour = new Date(t.date).getUTCHours();
+    let session = 'Asia';
+    if (hour >= 7 && hour < 13) session = 'London';
+    if (hour >= 13 && hour < 20) session = 'New York';
+    const existing = acc.find(item => item.name === session);
+    if (existing) { existing.value += Number(t.pnl) || 0; } 
+    else { acc.push({ name: session, value: Number(t.pnl) || 0 }); }
     return acc;
   }, []);
 
@@ -168,8 +184,6 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
             <button 
               onClick={() => setView ? setView('portfolio') : (window.location.hash = 'portfolio')} 
               style={{ padding: '10px 18px', borderRadius: '10px', background: '#1D1D1F', color: 'white', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer', transition: '0.2s' }}
-              onMouseOver={(e) => e.target.style.opacity = '0.8'}
-              onMouseOut={(e) => e.target.style.opacity = '1'}
             >
               FACE THE TRUTH
             </button>
@@ -177,9 +191,9 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1.4fr 1fr', gap: 25 }}>
+      {/* RIJ 1: LEAK RADAR & STRATEGY EDGE */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1.4fr 1fr', gap: 25, marginBottom: 25 }}>
         
-        {/* WIDGET 1: LEAK RADAR */}
         <div className="bento-card" style={{ padding: 30 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 25 }}>
             <TrendDown size={20} weight="bold" color="#FF3B30" />
@@ -207,29 +221,22 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
             </div>
           ) : (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86868B', textAlign: 'center', fontSize: 13 }}>
-              No leaks detected yet.<br/>Perform a Post-Mortem after an account breach to see data.
+              No leaks detected yet.
             </div>
           )}
         </div>
 
-        {/* WIDGET 2: STRATEGY EDGE */}
         <div className="bento-card" style={{ padding: 30 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 25 }}>
             <ShieldCheck size={20} weight="bold" color="#007AFF" />
             <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: '0.5px' }}>STRATEGY EDGE</span>
-            <InfoBadge 
-              title="Skill vs. Luck" 
-              text="Compares profit with discipline. Wins with a low discipline score (<70%) are marked as 'Luck', as this behavior is toxic to long-term scaling." 
-            />
           </div>
           
           <div style={{ display: 'grid', gap: 12 }}>
             {strategyStats.map((strat, i) => {
               const avgDisc = strat.totalDisc / strat.trades;
-              const isLuck = strat.totalPnl > 0 && avgDisc < 70;
-              
               return (
-                <div key={i} style={{ padding: '15px', background: '#F9F9FB', borderRadius: '16px', border: isLuck ? '1px solid #FF9F0A' : '1px solid transparent' }}>
+                <div key={i} style={{ padding: '15px', background: '#F9F9FB', borderRadius: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ fontWeight: 800, fontSize: 14 }}>{strat.name}</span>
                     <span style={{ fontWeight: 900, color: strat.totalPnl >= 0 ? '#30D158' : '#FF3B30' }}>
@@ -242,139 +249,117 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
                     </div>
                     <span style={{ fontSize: 10, fontWeight: 800, color: '#86868B' }}>{Math.round(avgDisc)}% DISC.</span>
                   </div>
-                  {isLuck && <div style={{ fontSize: 9, color: '#FF9F0A', fontWeight: 800, marginTop: 8 }}>⚠️ HIGH LUCK FACTOR: LOW DISCIPLINE</div>}
                 </div>
               );
             })}
           </div>
         </div>
+      </div>
 
-        {/* WIDGET 3: AUDIT SUMMARIES (SHADOW & STANDARD) */}
-        <div className="bento-card" style={{ 
-          padding: '32px', 
-          gridColumn: window.innerWidth < 768 ? 'auto' : 'span 2',
-          background: 'white',
-          borderRadius: '30px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
-        }}>
-           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ background: '#F2F2F7', padding: '8px', borderRadius: '12px' }}>
-                <FileText size={20} weight="fill" color="#1D1D1F" />
-              </div>
-              <span style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.2px' }}>Validation Log</span>
+      {/* RIJ 2: EXTRA INZICHTEN (ALPHA & SESSION) */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1.5fr 1fr', gap: 20, marginBottom: 25 }}>
+        <div className="bento-card" style={{ padding: '24px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 15 }}>
+              <ChartPieSlice size={18} weight="bold" color="#AF52DE" />
+              <span style={{ fontSize: '12px', fontWeight: 900, textTransform: 'uppercase' }}>Directional Alpha</span>
             </div>
-            <div style={{ fontSize: '12px', color: '#86868B', fontWeight: 600 }}>{auditedAccounts.length} Reports Total</div>
-          </div>
-
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr 1fr', 
-            gap: 24 
-          }}>
-            {auditedAccounts.length > 0 ? auditedAccounts.map((acc, i) => {
-              const isPassed = acc.stage !== 'Breached';
-              const reportData = isPassed ? acc.auditAnswers : acc.postMortemData;
-              const theme = isPassed ? '#30D158' : '#FF3B30';
-              const Icon = isPassed ? ShieldStar : ShieldWarning;
-
-              return (
-                <div 
-                  key={i} 
-                  onClick={() => setSelectedAudit(acc)}
-                  className="report-card"
-                  style={{ 
-                    position: 'relative',
-                    padding: '24px', 
-                    borderRadius: '24px', 
-                    background: 'white', 
-                    border: '1px solid #E5E5EA',
-                    cursor: 'pointer', 
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    minHeight: '180px'
-                  }}
-                >
-                  {/* Status Indicator Bar */}
-                  <div style={{ 
-                    position: 'absolute', top: 0, left: 0, right: 0, height: '6px', 
-                    background: theme, borderRadius: '24px 24px 0 0', opacity: 0.8 
-                  }} />
-                  
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                      <div style={{ 
-                        background: `${theme}10`, 
-                        padding: '6px 12px', 
-                        borderRadius: '10px', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 6 
-                      }}>
-                        <Icon size={14} weight="fill" color={theme} />
-                        <span style={{ fontSize: '10px', fontWeight: 900, color: theme, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          {isPassed ? 'Standard' : 'Shadow'}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '11px', color: '#86868B', fontWeight: 600 }}>
-                        {reportData?.timestamp ? new Date(reportData.timestamp.toDate()).toLocaleDateString('nl-NL') : 'Recent'}
-                      </span>
-                    </div>
-
-                    <div style={{ 
-                      fontSize: '14px', 
-                      color: '#1D1D1F', 
-                      fontWeight: 600, 
-                      lineHeight: 1.5, 
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      fontStyle: isPassed ? 'normal' : 'italic'
-                    }}>
-                      {isPassed 
-                        ? (reportData?.emotion || "Elite Process Execution") 
-                        : (reportData?.primaryMistake || "Behavioral Leak Detected")}
-                    </div>
-                  </div>
-
-                  <div style={{ 
-                    marginTop: 20, 
-                    paddingTop: 16, 
-                    borderTop: '1px solid #F2F2F7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#86868B' }}>
-                      {acc.firm}
-                    </span>
-                    <span style={{ 
-                      fontSize: '11px', 
-                      fontWeight: 800, 
-                      color: '#1D1D1F',
-                      background: '#F2F2F7',
-                      padding: '4px 8px',
-                      borderRadius: '6px'
-                    }}>
-                      ${(acc.size / 1000)}k
-                    </span>
-                  </div>
+            <div style={{ display: 'flex', gap: 20 }}>
+              {biasData.map((d, i) => (
+                <div key={i}>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#8E8E93' }}>{d.name.toUpperCase()}</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900 }}>{Math.round((d.wins / d.total) * 100)}% <span style={{fontSize: '10px', color: '#8E8E93'}}>WR</span></div>
                 </div>
-              );
-            }) : (
-              <div style={{ gridColumn: 'span 3', padding: '60px 0', textAlign: 'center' }}>
-                <div style={{ opacity: 0.2, marginBottom: 15 }}><FileText size={48} /></div>
-                <p style={{ color: '#86868B', fontSize: '14px', fontWeight: 500 }}>No audit summaries archived yet.</p>
-              </div>
-            )}
+              ))}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+             <Lightning size={24} color="#FF9F0A" weight="fill" />
+             <div style={{ fontSize: '9px', fontWeight: 800, color: '#8E8E93', marginTop: 4 }}>EFFICIENCY DNA</div>
           </div>
         </div>
-      </div> {/* Sluiting van de Grid (Leak Radar & summaries) */}
 
-      {/* INTEGRATIE VAN HET PROFESSIONELE RAPPORT */}
+        <div className="bento-card" style={{ padding: '24px', background: 'white' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Clock size={18} weight="bold" color="#007AFF" />
+            <span style={{ fontSize: '12px', fontWeight: 900, textTransform: 'uppercase' }}>Session DNA</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {sessionData.map((s, i) => (
+              <div key={i} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '14px', fontWeight: 900, color: s.value >= 0 ? '#34C759' : '#FF3B30' }}>
+                  {s.value >= 0 ? '+' : ''}{Math.round(s.value / 100) / 10}k
+                </div>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: '#8E8E93' }}>{s.name.toUpperCase()}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* RIJ 3: VALIDATION LOG */}
+      <div className="bento-card" style={{ 
+        padding: '32px', 
+        background: 'white',
+        borderRadius: '30px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
+      }}>
+         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: '#F2F2F7', padding: '8px', borderRadius: '12px' }}>
+              <FileText size={20} weight="fill" color="#1D1D1F" />
+            </div>
+            <span style={{ fontSize: '15px', fontWeight: 800 }}>Validation Log</span>
+          </div>
+          <div style={{ fontSize: '12px', color: '#86868B', fontWeight: 600 }}>{auditedAccounts.length} Reports Total</div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr 1fr', gap: 24 }}>
+          {auditedAccounts.length > 0 ? auditedAccounts.map((acc, i) => {
+            const isPassed = acc.stage !== 'Breached';
+            const reportData = isPassed ? acc.auditAnswers : acc.postMortemData;
+            const theme = isPassed ? '#30D158' : '#FF3B30';
+            const Icon = isPassed ? ShieldStar : ShieldWarning;
+
+            return (
+              <div 
+                key={i} 
+                onClick={() => setSelectedAudit(acc)}
+                className="report-card"
+                style={{ 
+                  position: 'relative',
+                  padding: '24px', 
+                  borderRadius: '24px', 
+                  background: 'white', 
+                  border: '1px solid #E5E5EA',
+                  cursor: 'pointer', 
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  minHeight: '180px'
+                }}
+              >
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: theme, borderRadius: '24px 24px 0 0', opacity: 0.8 }} />
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                    <div style={{ background: `${theme}10`, padding: '6px 12px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Icon size={14} weight="fill" color={theme} />
+                      <span style={{ fontSize: '10px', fontWeight: 900, color: theme, textTransform: 'uppercase' }}>{isPassed ? 'Standard' : 'Shadow'}</span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#86868B' }}>{reportData?.timestamp ? new Date(reportData.timestamp.toDate()).toLocaleDateString('nl-NL') : 'Recent'}</span>
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#1D1D1F', fontWeight: 600, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {isPassed ? reportData?.emotion : reportData?.primaryMistake}
+                  </div>
+                </div>
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #F2F2F7', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#86868B' }}>{acc.firm}</span>
+                  <span style={{ fontSize: '11px', fontWeight: 800 }}>${(acc.size / 1000)}k</span>
+                </div>
+              </div>
+            );
+          }) : <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: 40, color: '#86868B' }}>No reports archived yet.</div>}
+        </div>
+      </div>
+
       {selectedAudit && (
         <AccountIntelligenceReport 
           data={{
@@ -384,7 +369,7 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
             score_label: selectedAudit.ai_report?.label || "Disciplined",
             risk_integrity_score: selectedAudit.ai_report?.risk_score || "94",
             reflection_summary: selectedAudit.stage === 'Breached' ? selectedAudit.postMortemData?.reflectionSummary : selectedAudit.auditAnswers?.emotion,
-            the_mirror: selectedAudit.ai_report?.mirror_analysis || "Your process is stabilizing, but watch the late-session entries.",
+            the_mirror: selectedAudit.ai_report?.mirror_analysis || "Your process is stabilizing...",
             adaptive_rule_prescribed: selectedAudit.ai_report?.new_rule || "Max 0.5% risk on Fridays"
           }}
           status={selectedAudit.stage === 'Breached' ? 'Breached' : 'Passed'}
@@ -394,14 +379,7 @@ export default function Insights({ setView }) { // Voeg setView toe als prop om 
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        .report-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 12px 30px rgba(0,0,0,0.08);
-          border-color: transparent !important;
-        }
-        .report-card:active {
-          transform: translateY(-2px);
-        }
+        .report-card:hover { transform: translateY(-5px); box-shadow: 0 12px 30px rgba(0,0,0,0.08); border-color: transparent !important; }
       `}</style>
     </div>
   );
