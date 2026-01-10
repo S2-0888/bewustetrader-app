@@ -11,9 +11,11 @@ import {
     Warning, Tag, UploadSimple, Table, Database, Trash,
     ClockCounterClockwise, ChatCircleText, EnvelopeSimple, MagnifyingGlass,
     LockSimple, PaperPlaneTilt, Robot, ShieldCheck, WarningCircle,
-    Bell, Brain, Check, Prohibit
+    Bell, Brain, Check, Prohibit, Copy, Info, CloudArrowUp, LinkSimple, PlugsConnected
 } from '@phosphor-icons/react';
 import Papa from 'papaparse'; 
+import Mt5Wizard from './Mt5Wizard';
+import CTrader from './CTrader';
 
 // --- OPTIMIZED IMPORT MODULE COMPONENT WITH BATCHING ---
 const ImportModule = ({ type = 'payouts', onImportComplete }) => {
@@ -22,6 +24,8 @@ const ImportModule = ({ type = 'payouts', onImportComplete }) => {
     const [mapping, setMapping] = useState({});
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
+    const [wizardStep, setWizardStep] = useState(1);
+    const [testStatus, setTestStatus] = useState('idle'); // 'idle', 'waiting', 'success'
   
     const mandatoryFields = type === 'payouts' 
       ? ['date', 'source', 'amount'] 
@@ -157,8 +161,8 @@ const ImportModule = ({ type = 'payouts', onImportComplete }) => {
 
 // --- MAIN SETTINGS COMPONENT ---
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('trading'); 
-  const [activeConfig, setActiveConfig] = useState('strategies'); 
+  const [activeTab, setActiveTab] = useState('trading');
+  const [activeConfig, setActiveConfig] = useState('strategies')
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -167,6 +171,8 @@ export default function Settings() {
   const [isWiping, setIsWiping] = useState(false);
   const [recentBatches, setRecentBatches] = useState([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [statusMessage, setStatusMessage] = useState({ text: '', type: '' }); // type: 'error' of 'success'
+  const [showWizard, setShowWizard] = useState(false); // <--- VOEG DEZE REGEL TOE
   
   // --- MESSAGING & NOTIFICATION STATE ---
   const [notifications, setNotifications] = useState([]);
@@ -380,6 +386,63 @@ export default function Settings() {
       alert('Saved successfully!');
   };
 
+  const generateSyncKey = async () => {
+      const newKey = `PF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      const user = auth.currentUser;
+      if (!user) return;
+
+      try {
+          // Sla op in Firestore
+          await updateDoc(doc(db, "users", user.uid), { 
+              sync_id: newKey 
+          });
+
+          // Update de lokale state voor de UI
+          setConfig(prev => ({ ...prev, syncKey: newKey }));
+          
+          // Toon de succesmelding in de UI ipv een alert
+          setStatusMessage({ text: `Sync ID generated: ${newKey}`, type: 'success' });
+          
+          // Haal de melding na 4 seconden weer weg
+          setTimeout(() => setStatusMessage({ text: '', type: '' }), 4000);
+      } catch (error) {
+          console.error("Error saving sync_id:", error);
+          setStatusMessage({ text: "Failed to save Sync ID.", type: 'error' });
+      }
+  };
+  const handleCancelSubscription = async () => {
+    const bevestiging = window.confirm(
+      "Are you sure you want to cancel your elite access? \n\nYou will keep access until the end of your current period, but your Shadow Profile will stop gathering data immediately."
+    );
+    
+    if (!bevestiging) return;
+
+    try {
+      const user = auth.currentUser;
+      await updateDoc(doc(db, "users", user.uid), {
+        cancelAtPeriodEnd: true,
+        updatedAt: serverTimestamp()
+      });
+
+      // Optioneel: Stuur direct een bericht naar de admin via de feedback collectie
+      await addDoc(collection(db, "beta_feedback"), {
+        userId: user.uid,
+        userEmail: user.email,
+        type: 'billing',
+        message: "USER INITIATED CANCELLATION: Trader has requested to stop their subscription via the dashboard.",
+        status: 'open',
+        isRead: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      alert("Cancellation processed. Your access remains active until the expiration date.");
+    } catch (error) {
+      console.error("Cancel error:", error);
+      alert("Something went wrong. Please contact support.");
+    }
+  };
+
   if (loading && !userProfile) return <div style={{ padding:40, color:'#86868B' }}>Loading System Architect...</div>;
 
   return (
@@ -389,10 +452,24 @@ export default function Settings() {
             <h1 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: 800, margin: 0, letterSpacing: '-1px' }}>System Architect</h1>
             <p style={{ color: '#86868B', fontSize: '14px' }}>Configure your trading ecosystem and interventions.</p>
       </header>
+      
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: isMobile ? '20px' : '40px' }}>
+          {/* --- SIDEBAR MENU --- */}
           <div style={{ display:'flex', flexDirection: isMobile ? 'row' : 'column', gap: 5, overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 10 : 0 }}>
-              <MenuButton label="Trading" icon={<Faders size={20}/>} active={activeTab==='trading'} onClick={()=>setActiveTab('trading')} />
+              <MenuButton 
+                label="Trading" 
+                icon={<Faders size={20}/>} 
+                active={activeTab==='trading'} 
+                onClick={() => { setActiveTab('trading'); setActiveConfig('strategies'); }} 
+              />
+
+              <MenuButton 
+                label="Data & Connectivity" 
+                icon={<Database size={20}/>} 
+                active={activeTab==='data'} 
+                onClick={() => { setActiveTab('data'); setActiveConfig('mt5'); }} 
+              />
               
               <div style={{ position: 'relative' }}>
                 <MenuButton 
@@ -406,72 +483,206 @@ export default function Settings() {
                 )}
               </div>
 
-              <MenuButton label="Migration" icon={<Database size={20}/>} active={activeTab==='import'} onClick={()=>setActiveTab('import')} />
               <MenuButton label="Billing" icon={<CreditCard size={20}/>} active={activeTab==='account'} onClick={()=>setActiveTab('account')} />
           </div>
 
+          {/* --- MAIN CONTENT AREA --- */}
           <div style={{ minWidth: 0 }}>
+              
+              {/* 1. TRADING TAB (Strategies, Rules, etc) */}
               {activeTab === 'trading' && (
-                  <div className="bento-card" style={{ padding: 0, overflow:'hidden', minHeight: 500, display:'flex', flexDirection:'column', background: 'white' }}>
-                      <div style={{ padding: 15, borderBottom: '1px solid #F2F2F7', background:'#F9F9F9', display:'flex', gap:5, overflowX: 'auto' }}>
-                          {CATEGORIES.map(cat => (
-                              <button key={cat.id} onClick={() => setActiveConfig(cat.id)} style={{ flex: isMobile ? 'none' : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding: '10px 15px', borderRadius: 8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeConfig === cat.id ? 'white' : 'transparent', color: activeConfig === cat.id ? '#1D1D1F' : '#86868B', boxShadow: activeConfig === cat.id ? '0 2px 5px rgba(0,0,0,0.05)' : 'none', whiteSpace: 'nowrap' }}>
-                                  <span style={{ color: activeConfig === cat.id ? cat.color : 'inherit' }}>{cat.icon}</span> {cat.label}
-                              </button>
-                          ))}
-                      </div>
-                      <div style={{ padding: isMobile ? 20 : 30, flex:1 }}>
-                          <h3 style={{ margin:0, fontSize:18, display:'flex', alignItems:'center', gap:10 }}>Manage {CATEGORIES.find(c=>c.id===activeConfig).label}</h3>
-                          <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop: 20 }}>
-                              {(config[activeConfig] || []).map((item, idx) => (
-                                  <div key={idx} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:20, background:'#F5F5F7', fontSize:13, fontWeight:600 }}>
-                                      {item} <X size={12} style={{cursor:'pointer'}} onClick={() => removeItem(item)}/>
-                                  </div>
+                  <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                      <div className="bento-card" style={{ padding: 0, overflow:'hidden', minHeight: 500, display:'flex', flexDirection:'column', background: 'white' }}>
+                          <div style={{ padding: 15, borderBottom: '1px solid #F2F2F7', background:'#F9F9F9', display:'flex', gap:5, overflowX: 'auto' }}>
+                              {CATEGORIES.map(cat => (
+                                  <button key={cat.id} onClick={() => setActiveConfig(cat.id)} style={{ flex: isMobile ? 'none' : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding: '10px 15px', borderRadius: 8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeConfig === cat.id ? 'white' : 'transparent', color: activeConfig === cat.id ? '#1D1D1F' : '#86868B', boxShadow: activeConfig === cat.id ? '0 2px 5px rgba(0,0,0,0.05)' : 'none', whiteSpace: 'nowrap' }}>
+                                      <span style={{ color: activeConfig === cat.id ? cat.color : 'inherit' }}>{cat.icon}</span> {cat.label}
+                                  </button>
                               ))}
                           </div>
-                          <div style={{ marginTop: 40, display:'flex', gap:10 }}>
-                              <input className="apple-input" placeholder="Add new..." value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} />
-                              <button onClick={addItem} style={{ width:50, background:'#007AFF', color:'white', border:'none', borderRadius:10, cursor:'pointer' }}><Plus weight="bold"/></button>
+                          <div style={{ padding: isMobile ? 20 : 30, flex:1 }}>
+                              <h3 style={{ margin:0, fontSize:18, display:'flex', alignItems:'center', gap:10 }}>
+                                  Manage {CATEGORIES.find(c => c.id === activeConfig)?.label || 'Settings'}
+                              </h3>
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop: 20 }}>
+                                  {(config[activeConfig] || []).map((item, idx) => (
+                                      <div key={idx} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:20, background:'#F5F5F7', fontSize:13, fontWeight:600 }}>
+                                          {item} <X size={12} style={{cursor:'pointer'}} onClick={() => removeItem(item)}/>
+                                      </div>
+                                  ))}
+                              </div>
+                              <div style={{ marginTop: 40, display:'flex', gap:10 }}>
+                                  <input className="apple-input" placeholder="Add new..." value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} />
+                                  <button onClick={addItem} style={{ width:50, background:'#007AFF', color:'white', border:'none', borderRadius:10, cursor:'pointer' }}><Plus weight="bold"/></button>
+                              </div>
                           </div>
-                      </div>
-                      <div style={{ padding: 15, background:'#F9F9F9', borderTop:'1px solid #F2F2F7', textAlign:'right' }}>
-                          <button onClick={handleSave} className="btn-primary" style={{ padding:'8px 20px', background: unsavedChanges ? '#007AFF' : '#C7C7CC' }}>Save Changes</button>
+                          <div style={{ padding: 15, background:'#F9F9F9', borderTop:'1px solid #F2F2F7', textAlign:'right' }}>
+                              <button onClick={handleSave} className="btn-primary" style={{ padding:'8px 20px', background: unsavedChanges ? '#007AFF' : '#C7C7CC' }}>Save Changes</button>
+                          </div>
                       </div>
                   </div>
               )}
 
-              {activeTab === 'import' && (
-                  <div style={{ display:'grid', gap:20 }}>
-                      <div style={{ background: 'rgba(0,122,255,0.05)', padding: 20, borderRadius: 20, border: '1px solid rgba(0,122,255,0.1)' }}>
-                          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Migration Hub</h3>
-                          <p style={{ fontSize: 13, color: '#86868B', marginTop: 4 }}>Grouped by batch ID. Your manual data is safe.</p>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
-                          <ImportModule type="challenges" onImportComplete={fetchRecentBatches} />
-                          <ImportModule type="payouts" onImportComplete={fetchRecentBatches} />
-                      </div>
-                      <div className="bento-card" style={{ padding: 25, background: '#FFF' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-                              <ClockCounterClockwise size={22} weight="bold" color="#8E8E93" />
-                              <h4 style={{ fontWeight: 800, margin: 0 }}>Recent Import Sessions</h4>
-                          </div>
-                          {recentBatches.length === 0 ? (
-                              <p style={{ fontSize: 12, color: '#86868B', fontStyle: 'italic' }}>No import batches found.</p>
-                          ) : (
-                              <div style={{ display: 'grid', gap: 10 }}>
-                                  {recentBatches.map(batch => (
-                                      <div key={batch.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', background: '#F9F9F9', borderRadius: 12, border: '1px solid #F2F2F7' }}>
-                                          <div>
-                                              <div style={{ fontSize: 12, fontWeight: 800 }}>{batch.type}: {batch.date.toLocaleString('nl-NL', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-                                              <div style={{ fontSize: 10, color: '#86868B' }}>{batch.count} items processed</div>
-                                          </div>
-                                          <button onClick={() => handleWipeBatch(batch.id)} disabled={isWiping} style={{ background: '#FF3B3011', border: 'none', padding: 8, borderRadius: 8, cursor: 'pointer', color: '#FF3B30' }}><Trash size={18} /></button>
-                                      </div>
-                                  ))}
-                              </div>
-                          )}
-                      </div>
-                  </div>
+              {/* 2. DATA & CONNECTIVITY TAB (MT5 + Migration) */}
+              {activeTab === 'data' && (
+                <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                    <header style={{ marginBottom: 25 }}>
+                        <h2 style={{ fontSize: '24px', fontWeight: 900, margin: 0, letterSpacing: '-0.5px' }}>Data & Connectivity</h2>
+                        <p style={{ color: '#86868B', fontSize: 14, marginTop: 4 }}>Manage live platform connections and historical data imports.</p>
+                    </header>
+
+                    {/* SEGMENTED CONTROL */}
+                    <div style={{ display: 'flex', background: '#E5E5EA', padding: '4px', borderRadius: '12px', marginBottom: '25px', width: isMobile ? '100%' : 'fit-content' }}>
+                        <button 
+                            onClick={() => setActiveConfig('mt5')}
+                            style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', fontSize: '13px', fontWeight: 700, background: activeConfig === 'mt5' ? 'white' : 'transparent', boxShadow: activeConfig === 'mt5' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', flex: 1 }}
+                        >
+                            MT5 Bridge
+                        </button>
+                        <button 
+                            onClick={() => setActiveConfig('ctrader')}
+                            style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', fontSize: '13px', fontWeight: 700, background: activeConfig === 'ctrader' ? 'white' : 'transparent', boxShadow: activeConfig === 'ctrader' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', flex: 1 }}
+                        >
+                            cTrader Cloud
+                        </button>
+                        <button 
+                            onClick={() => setActiveConfig('import')}
+                            style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', fontSize: '13px', fontWeight: 700, background: activeConfig === 'import' ? 'white' : 'transparent', boxShadow: activeConfig === 'import' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', flex: 1 }}
+                        >
+                            Migration Hub
+                        </button>
+                    </div>
+
+                    {/* LIVE PLATFORMS SECTION */}
+                    {activeConfig === 'mt5' && (
+    <div style={{ animation: 'fadeIn 0.3s ease', display: 'grid', gap: 15 }}>
+        
+        {/* COMPACTE STATUS BAR (ALTIJD ZICHTBAAR) */}
+        <div className="bento-card" style={{ 
+            padding: '15px 20px', background: 'white', borderRadius: '18px', 
+            border: '1px solid #E5E5EA', display: 'flex', justifyContent: 'space-between', alignItems: 'center' 
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <div>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: '#86868B', letterSpacing: '0.5px' }}>SYNC ID</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, fontFamily: 'monospace', color: '#1D1D1F' }}>
+                        {userProfile?.sync_id || "NOT GENERATED"}
+                    </div>
+                </div>
+
+                {/* STATUS BADGE: Kijkt naar sync_id in database */}
+                <div style={{ 
+                    padding: '6px 12px', borderRadius: '10px', fontSize: '11px', fontWeight: 800,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: userProfile?.sync_id ? '#30D15815' : '#F2F2F7',
+                    color: userProfile?.sync_id ? '#30D158' : '#86868B',
+                    border: `1px solid ${userProfile?.sync_id ? '#30D15820' : '#E5E5EA'}`
+                }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: userProfile?.sync_id ? '#30D158' : '#C7C7CC' }} />
+                    {userProfile?.sync_id ? 'BRIDGE ACTIVE' : 'DISCONNECTED'}
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+                {userProfile?.sync_id && (
+                    <button 
+                        onClick={() => { 
+                            navigator.clipboard.writeText(userProfile.sync_id); 
+                            setStatusMessage({ text: "ID Copied!", type: 'success' });
+                            setTimeout(() => setStatusMessage({ text: '', type: '' }), 3000);
+                        }} 
+                        className="btn-mini-icon" 
+                        style={{ background: '#F5F5F7', border: 'none', padding: '8px', borderRadius: '10px', cursor: 'pointer' }}
+                    >
+                        <Copy size={18} />
+                    </button>
+                )}
+                <button 
+                    onClick={() => setShowWizard(!showWizard)} 
+                    className="btn-primary" 
+                    style={{ 
+                        padding: '8px 15px', 
+                        fontSize: 12, 
+                        height: 38, 
+                        background: (showWizard || !userProfile?.sync_id) ? '#1D1D1F' : '#F2F2F7', 
+                        color: (showWizard || !userProfile?.sync_id) ? 'white' : '#1D1D1F',
+                        border: 'none',
+                        borderRadius: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                    }}
+                >
+                    {userProfile?.sync_id ? (showWizard ? 'Hide Guide' : 'Setup Guide') : 'Start Setup'}
+                </button>
+            </div>
+        </div>
+
+        {/* CONDITIONELE WIZARD & MELDING */}
+        {(showWizard || !userProfile?.sync_id) && (
+            <div style={{ animation: 'fadeIn 0.4s ease' }}>
+                <div style={{ background: '#F5F5F7', padding: '20px', borderRadius: '16px', marginBottom: '15px', border: '1px solid #E5E5EA' }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <Info size={20} color="#007AFF" weight="fill" />
+                        <div>
+                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1D1D1F' }}>
+                                {userProfile?.sync_id ? "Systeem Verbonden" : "Koppel je MT5 account"}
+                            </p>
+                            <p style={{ margin: '4px 0 0 0', fontSize: 12, color: '#86868B', lineHeight: 1.4 }}>
+                                {userProfile?.sync_id 
+                                    ? "Je bridge is momenteel actief. Hieronder vind je de instructies mocht je de verbinding opnieuw willen instellen." 
+                                    : "Genereer een Sync ID en volg de stappen in de wizard om je trades live te synchroniseren."}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                {!userProfile?.sync_id && (
+                    <button onClick={generateSyncKey} className="btn-primary" style={{ width: '100%', marginBottom: 20, height: 50, fontSize: 14 }}>
+                        Generate New Sync ID
+                    </button>
+                )}
+                
+                <Mt5Wizard />
+            </div>
+        )}
+    </div>
+)}
+
+                {/* CTRADER CLOUD SECTION */}
+                {activeConfig === 'ctrader' && <CTrader userProfile={userProfile} />}
+
+                    {/* MIGRATION HUB SECTION */}
+                    {activeConfig === 'import' && (
+                        <div style={{ animation: 'fadeIn 0.3s ease', display:'grid', gap:20 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
+                                <ImportModule type="challenges" onImportComplete={fetchRecentBatches} />
+                                <ImportModule type="payouts" onImportComplete={fetchRecentBatches} />
+                            </div>
+                            
+                            <div className="bento-card" style={{ padding: 25, background: '#FFF' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                                    <ClockCounterClockwise size={22} weight="bold" color="#8E8E93" />
+                                    <h4 style={{ fontWeight: 800, margin: 0 }}>Recent Import Sessions</h4>
+                                </div>
+                                {recentBatches.length === 0 ? (
+                                    <p style={{ fontSize: 12, color: '#86868B', fontStyle: 'italic' }}>No import batches found.</p>
+                                ) : (
+                                    <div style={{ display: 'grid', gap: 10 }}>
+                                        {recentBatches.map(batch => (
+                                            <div key={batch.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', background: '#F9F9F9', borderRadius: 12, border: '1px solid #F2F2F7' }}>
+                                                <div>
+                                                    <div style={{ fontSize: 12, fontWeight: 800 }}>{batch.type}: {batch.date.toLocaleString('nl-NL')}</div>
+                                                    <div style={{ fontSize: 10, color: '#86868B' }}>{batch.count} items processed</div>
+                                                </div>
+                                                <button onClick={() => handleWipeBatch(batch.id)} disabled={isWiping} style={{ background: '#FF3B3011', border: 'none', padding: 8, borderRadius: 8, cursor: 'pointer', color: '#FF3B30' }}><Trash size={18} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
               )}
 
               {activeTab === 'messages' && (
@@ -717,9 +928,36 @@ export default function Settings() {
                                     <div style={{ width: `${getSubscriptionProgress()}%`, height: '100%', background: userProfile?.isApproved ? '#30D158' : '#FF3B30', borderRadius: 3 }} />
                                 </div>
                             </div>
-                            <button onClick={() => window.location.href = 'https://billing.stripe.com/p/login/test_YOUR_PORTAL_LINK'} className="btn-primary" style={{ width: '100%', background: 'transparent', color: '#1D1D1F', border: '1px solid #1D1D1F' }}>
-                                <CreditCard size={20} /> Manage Subscription in Stripe
-                            </button>
+                            <div style={{ display: 'grid', gap: 10 }}>
+                                <button 
+                                    onClick={() => window.location.href = 'https://billing.stripe.com/p/login/test_YOUR_PORTAL_LINK'} 
+                                    className="btn-primary" 
+                                    style={{ width: '100%', background: '#1D1D1F', color: 'white', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                                >
+                                    <CreditCard size={20} /> Manage Billing & Invoices
+                                </button>
+
+                                {!userProfile?.cancelAtPeriodEnd ? (
+                                    <button 
+                                        onClick={handleCancelSubscription}
+                                        style={{ 
+                                            width: '100%', background: 'transparent', color: '#FF3B30', 
+                                            border: '1px solid #FF3B3020', padding: '12px', borderRadius: '12px', 
+                                            fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginTop: 5 
+                                        }}
+                                    >
+                                        Cancel Elite Membership
+                                    </button>
+                                ) : (
+                                    <div style={{ 
+                                        background: '#FF3B3010', color: '#FF3B30', padding: '12px', 
+                                        borderRadius: '12px', fontSize: '11px', fontWeight: 800, 
+                                        textAlign: 'center', border: '1px solid #FF3B3020' 
+                                    }}>
+                                        <Warning size={14} weight="fill" /> SUBSCRIPTION SET TO EXPIRE
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         <div className="bento-card" style={{ padding: 25, background: 'white', border: '1px solid #E5E5EA' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>

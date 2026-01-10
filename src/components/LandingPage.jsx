@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 const LandingPage = ({ onSignIn }) => {
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [pricingData, setPricingData] = useState([]);
+  const [faqData, setFaqData] = useState([]);
+  const [activeFaq, setActiveFaq] = useState(null);
 
   // --- EFFECT 1: Scroll Blokkade Fix ---
   useEffect(() => {
@@ -24,6 +29,28 @@ const LandingPage = ({ onSignIn }) => {
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // --- EFFECT 3: Live Data uit Firestore ---
+  useEffect(() => {
+    // Haal Pricing op
+    const unsubPricing = onSnapshot(collection(db, "site_content", "pricing", "plans"), (snap) => {
+      const plans = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPricingData(plans.length > 0 ? plans : [
+        { id: 'default', name: "Founding Member", price: 12.50, oldPrice: 24.99, features: ["Unlimited Account Vaults", "TCT Shadow Sync", "Lifetime Status"] }
+      ]);
+    });
+
+    // Haal FAQ op (gesorteerd op volgorde)
+    const qFaq = query(collection(db, "site_content", "faq", "entries"), orderBy("order", "asc"));
+    const unsubFaq = onSnapshot(qFaq, (snap) => {
+      const faqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFaqData(faqs.length > 0 ? faqs : [
+        { id: 'default', question: "Is this a Trade Copier?", answer: "No. Propfolio only reads history via secure scripts." }
+      ]);
+    });
+
+    return () => { unsubPricing(); unsubFaq(); };
   }, []);
 
   const scrollToTop = () => {
@@ -169,6 +196,67 @@ const LandingPage = ({ onSignIn }) => {
             <p className="text-gray-500 text-lg leading-relaxed mb-8">
               Visualize your realized profit, total harvest, and yearly momentum. Transform your trading income into strategic wealth management.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Section */}
+      <section className="py-32 px-6 bg-black border-t border-white/5">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl md:text-5xl font-black mb-6 uppercase tracking-tighter italic">Join the Inner Circle</h2>
+          <p className="text-gray-500 mb-16 text-sm">Support development and master your shadow at a fraction of the cost.</p>
+          
+          <div className="grid md:grid-cols-1 max-w-md mx-auto gap-8">
+            {pricingData.map((plan) => (
+              <div key={plan.id} className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-green-500/20 to-blue-500/20 rounded-[32px] blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+                <div className="relative bg-zinc-900/60 p-12 rounded-[32px] border border-white/10 text-center">
+                  <div className="text-green-500 font-bold uppercase text-[10px] tracking-[0.3em] mb-4">{plan.name}</div>
+                  <div className="flex items-center justify-center gap-3 mb-6">
+                    {plan.oldPrice && <span className="text-gray-600 text-xl line-through font-bold">${plan.oldPrice}</span>}
+                    <span className="text-5xl font-black tracking-tighter">${plan.price}</span>
+                    <span className="text-gray-500 text-sm">/mo</span>
+                  </div>
+                  <ul className="text-left space-y-4 mb-10">
+                    {plan.features?.map((f, i) => (
+                      <li key={i} className="flex items-center gap-3 text-sm text-gray-400">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div> {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <button onClick={onSignIn} className="block w-full bg-white text-black py-4 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-green-500 hover:text-white transition-all">
+                    Join BETA Phase
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ Section */}
+      <section className="py-32 px-6 border-t border-white/5 bg-zinc-950/20">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-3xl font-black mb-12 tracking-tighter uppercase italic text-center">
+            Frequently Asked <span className="text-white/30 text-2xl">Questions</span>
+          </h2>
+          <div className="space-y-4">
+            {faqData.map((faq, index) => (
+              <div key={faq.id} className="bg-zinc-900/40 rounded-2xl border border-white/5 overflow-hidden">
+                <button 
+                  onClick={() => setActiveFaq(activeFaq === index ? null : index)}
+                  className="w-full p-6 flex justify-between items-center text-left"
+                >
+                  <span className="font-bold text-sm uppercase tracking-widest">{faq.question}</span>
+                  <svg className={`w-4 h-4 transition-transform ${activeFaq === index ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <div className={`transition-all duration-300 ease-in-out ${activeFaq === index ? 'max-h-96 opacity-100 p-6 pt-0' : 'max-h-0 opacity-0'}`}>
+                  <p className="text-gray-500 text-sm leading-relaxed">{faq.answer}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

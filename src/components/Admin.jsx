@@ -7,23 +7,91 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { 
-  ShieldCheck, Crown, Trash, Check, LinkSimple, 
-  Megaphone, Clock, MagnifyingGlass, ArrowsClockwise,
-  ChartBar, Sparkle, TrendUp, UsersThree, XCircle,
-  ChartLineUp, Pulse, WarningCircle, Eye, 
-  Brain, ListDashes, Shield, PlusCircle, DownloadSimple,
-  GearSix, Lock, ToggleLeft, ToggleRight, Sliders,
-  EnvelopeSimple, Bug, Lightbulb, ChatTeardropText, PaperPlaneTilt,
-  Funnel, Robot, CaretRight, CheckCircle, LockSimple, Camera,
-  CalendarPlus 
+  ShieldCheck, Brain, ChartLineUp, EnvelopeSimple, PlusCircle, GearSix, 
+  ListDashes, Browser, Robot, MagnifyingGlass, Bug, Lightbulb, CheckCircle, 
+  LockSimple, Trash, ArrowsClockwise, Camera, PaperPlaneTilt,
+  Clock, Tag, Check, CalendarPlus, XCircle, CaretRight, ToggleRight, ToggleLeft, 
+  TrendUp, Pulse, Megaphone, LinkSimple
 } from '@phosphor-icons/react';
 
-export default function Admin() {
-  const [activeTab, setActiveTab] = useState('mission'); 
+// Importeer de modules die we hebben gemaakt
+import TraderRegistry from './TraderRegistry';
+import InboxManager from './InboxManager';
+import ContentManager from './ContentManager';
+import SystemManager from './SystemManager';
+
+const adminStyles = `
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .spinner {
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .bento-card {
+    padding: 25px;
+    border-radius: 24px;
+    border: 1px solid #E5E5EA;
+    transition: all 0.3s ease;
+  }
+  .label-xs {
+    font-size: 10px;
+    font-weight: 800;
+    color: #8E8E93;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+`;
+
+  function Admin() {  const [activeTab, setActiveTab] = useState('mission'); 
   const [users, setUsers] = useState([]);
   const [tctLogs, setTctLogs] = useState([]); 
-  const [whitelistIntakes, setWhitelistIntakes] = useState([]); // TOEGEVOEGD
+  const [whitelistIntakes, setWhitelistIntakes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [faqs, setFaqs] = useState([]);
+  const [newFaq, setNewFaq] = useState({ question: '', answer: '', order: 0 });
+  const [pricing, setPricing] = useState({ id: 'default', name: '', price: '', oldPrice: '', features: '' });
+  const [copied, setCopied] = useState(false);
+  
+  // --- SCHEDULER STATE (Zorg dat deze hier maar 1x staat!) ---
+  const [scheduledChange, setScheduledChange] = useState({ targetDate: '', targetTime: '' });
+  const [priceLogs, setPriceLogs] = useState([]); 
+
+  // MODULAIRE MENU STRUCTUUR
+  const menuGroups = [
+    {
+      title: 'I. Command Center',
+      items: [
+        { id: 'mission', label: 'Mission Control', icon: <ShieldCheck /> },
+        { id: 'intelligence', label: 'Intelligence', icon: <Brain /> },
+      ]
+    },
+    {
+      title: 'II. Growth',
+      items: [
+        { id: 'finance', label: 'Financials', icon: <ChartLineUp /> },
+        { id: 'inbox', label: 'Beta Inbox', icon: <EnvelopeSimple /> },
+        { id: 'whitelist', label: 'Whitelist', icon: <PlusCircle /> },
+      ]
+    },
+    {
+      title: 'III. The Engine',
+      items: [
+        { id: 'settings', label: 'Platform Settings', icon: <GearSix /> },
+        { id: 'logs', label: 'System Logs', icon: <ListDashes /> },
+      ]
+    },
+    {
+      title: 'IV. Content',
+      items: [
+        { id: 'content', label: 'Site Content', icon: <Browser /> },
+      ]
+    }
+  ];
   
   // Feedback State
   const [feedbackItems, setFeedbackItems] = useState([]);
@@ -50,8 +118,26 @@ export default function Admin() {
   const [duration, setDuration] = useState(24);
   const [activeBroadcast, setActiveBroadcast] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [logSearchTerm, setLogSearchTerm] = useState(''); 
-  const [copied, setCopied] = useState(false);
+  const [logSearchTerm, setLogSearchTerm] = useState('');
+
+  // New Content Management States
+  const [showFaqModal, setShowFaqModal] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [pricingPresets] = useState([
+    { name: 'Standard Monthly', price: '97', oldPrice: '147', features: 'AI Dashboard, Shadow Audit, Risk Manager, Weekly Sessions' },
+    { name: 'Lifetime Founder', price: '997', oldPrice: '2497', features: 'All Pro Features, No Monthly Fees, Founder Badge, Alpha Access' },
+    { name: 'Flash Sale (24h)', price: '47', oldPrice: '97', features: 'Full Platform Access, Discord Community' }
+  ]);
+
+  // FAQ Drag & Drop Handler
+const moveFaq = async (id, currentOrder, direction) => {
+  const newOrder = direction === 'up' ? currentOrder - 1 : currentOrder + 1;
+  if (newOrder < 1) return;
+
+  const faqRef = doc(db, "site_content", "faq", "entries", id);
+  await updateDoc(faqRef, { order: newOrder });
+  // Optioneel: hersorteer de rest ook, maar dit is de basis.
+};
 
   useEffect(() => {
     // 1. Listen for users
@@ -86,10 +172,29 @@ export default function Admin() {
         setWhitelistIntakes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
+    // 7. Listen for FAQ
+    const unsubFaq = onSnapshot(query(collection(db, "site_content", "faq", "entries"), orderBy("order", "asc")), (snap) => {
+      setFaqs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    // 8. Listen for Pricing
+    const unsubPricing = onSnapshot(collection(db, "site_content", "pricing", "plans"), (snap) => {
+      if (!snap.empty) {
+        const p = snap.docs[0].data();
+        setPricing({ id: snap.docs[0].id, ...p, features: p.features?.join(', ') || '' });
+      }
+    });
+
+    // 9. Listen for Pricing History Logs
+    const unsubPriceLogs = onSnapshot(query(collection(db, "system", "pricing_history", "logs"), orderBy("timestamp", "desc"), limit(5)), (snap) => {
+      setPriceLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     return () => { 
-        unsubUsers(); unsubBroadcast(); unsubSettings(); 
-        unsubLogs(); unsubFeedback(); unsubWhitelist(); 
-    };
+            unsubUsers(); unsubBroadcast(); unsubSettings(); 
+            unsubLogs(); unsubFeedback(); unsubWhitelist(); 
+            unsubFaq(); unsubPricing(); unsubPriceLogs(); // unsubPriceLogs toegevoegd
+        };
   }, []); // Einde van de hoofd-hook
 
   // --- DEZE HOOK MOET HIER LOS STAAN (rond regel 114) ---
@@ -99,6 +204,13 @@ export default function Admin() {
       if (updated) setSelectedMessage(updated);
     }
   }, [feedbackItems]);
+
+  const impersonateUser = (user) => {
+    if (confirm(`Wil je inloggen als ${user.displayName || user.email}?`)) {
+      sessionStorage.setItem('impersonate_uid', user.id);
+      window.location.href = '/dashboard';
+    }
+  };
 
   // --- ACTIONS: DIRECT ACTIVATION FROM REGISTRY ---
   const activateTraderDirectly = async (userId) => {
@@ -313,6 +425,15 @@ Team The Conscious Trader`;
   const oneWeekAgo = nowTime - (7 * 24 * 60 * 60 * 1000);
   const activeToday = users.filter(u => u.lastLogin && (nowTime - u.lastLogin) < 86400000).length;
   const newTradersThisWeek = users.filter(u => u.createdAt && u.createdAt.toDate().getTime() > oneWeekAgo).length;
+  const totalUsers = users.length;
+  const pendingAudits = whitelistIntakes.filter(i => i.status === 'pending').length;
+  // Churn Risk: Mensen die binnen 3 dagen verlopen OF al hebben opgezegd (cancelAtPeriodEnd)
+  const churnRisk = users.filter(u => {
+    if (u.cancelAtPeriodEnd) return true;
+    if (!u.currentPeriodEnd) return false;
+    const daysLeft = (u.currentPeriodEnd.toDate() - new Date()) / (1000 * 60 * 60 * 24);
+    return daysLeft > 0 && daysLeft < 3;
+  }).length;
 
   const updateGlobalSetting = async (key, value) => {
     const actionText = value ? 'ENABLE' : 'DISABLE';
@@ -320,6 +441,54 @@ Team The Conscious Trader`;
     
     setSettings(prev => ({ ...prev, [key]: value }));
     await setDoc(doc(db, "system", "settings"), { [key]: value }, { merge: true });
+  };
+
+  const handleAddFaq = async () => {
+    if (!newFaq.question || !newFaq.answer) return;
+    await addDoc(collection(db, "site_content", "faq", "entries"), newFaq);
+    setNewFaq({ question: '', answer: '', order: faqs.length + 1 });
+  };
+
+  const deleteFaq = async (id) => {
+    if (confirm("Delete this FAQ?")) await deleteDoc(doc(db, "site_content", "faq", "entries", id));
+  };
+
+  const handleUpdatePricing = async () => {
+    const featArray = pricing.features.split(',').map(f => f.trim());
+    await setDoc(doc(db, "site_content", "pricing", "plans", pricing.id), {
+      name: pricing.name,
+      price: pricing.price,
+      oldPrice: pricing.oldPrice,
+      features: featArray,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    alert("Pricing updated!");
+  };
+
+  const handleSchedulePrice = async () => {
+    if(!scheduledChange.targetDate || !scheduledChange.targetTime) return alert("Selecteer datum en tijd.");
+    
+    const executionKey = `${scheduledChange.targetDate} ${scheduledChange.targetTime}`;
+    const featArray = pricing.features.split(',').map(f => f.trim());
+
+    await setDoc(doc(db, "system", "scheduled_pricing"), {
+      ...pricing,
+      features: featArray,
+      executionTime: executionKey,
+      status: 'pending',
+      scheduledBy: auth.currentUser?.email,
+      createdAt: serverTimestamp()
+    });
+
+    // Log de actie in de geschiedenis
+    await addDoc(collection(db, "system", "pricing_history", "logs"), {
+      action: `Timer gezet voor ${pricing.name}`,
+      user: auth.currentUser?.email,
+      timestamp: serverTimestamp(),
+      details: `Gepland voor: ${executionKey}`
+    });
+
+    alert(`Timer ingesteld! De prijzen gaan live op ${executionKey}.`);
   };
 
   const formatLastActive = (timestamp) => {
@@ -340,41 +509,138 @@ Team The Conscious Trader`;
     setBroadcast('');
   };
 
+  // --- FINANCIELE LOGICA ---
+  const calculateFinances = () => {
+    const now = new Date();
+    const oneWeekAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+
+    return users.reduce((acc, user) => {
+      if (user.isApproved && user.subscriptionPrice) {
+        const price = Number(user.subscriptionPrice) || 0;
+        const createdAt = user.createdAt?.toDate().getTime() || now.getTime();
+
+        // Monthly Recurring (Alles wat actief is)
+        if (user.subscriptionStatus === 'active') {
+          acc.mrr += price;
+        }
+
+        // Weekly (Nieuwe omzet afgelopen 7 dagen)
+        if (createdAt > oneWeekAgo) {
+          acc.weekly += price;
+        }
+
+        // YTD (Sinds 1 januari)
+        if (createdAt > startOfYear) {
+          acc.ytd += price;
+        }
+      }
+      return acc;
+    }, { mrr: 0, weekly: 0, ytd: 0 });
+  };
+
+  const finances = calculateFinances();
+
+  // Injecteer de adminStyles in de head van de pagina
+  useEffect(() => {
+    const styleTag = document.createElement('style');
+    styleTag.innerHTML = adminStyles;
+    document.head.appendChild(styleTag);
+    return () => {
+      if (document.head.contains(styleTag)) {
+        document.head.removeChild(styleTag);
+      }
+    };
+  }, []);
+
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><ArrowsClockwise size={32} className="spinner" color="#4285F4" /></div>;
 
-  return (
-    <div style={{ padding: '40px 20px', maxWidth: 1400, margin: '0 auto', background: '#F5F5F7', minHeight: '100vh', paddingBottom: 100 }}>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 }}>
-        <div>
-          <h1 style={{ fontSize: '32px', fontWeight: 900, letterSpacing: '-1.5px', margin: 0, color: '#1D1D1F' }}>Command Center</h1>
-          <p style={{ color: '#86868B', fontSize: '14px', fontWeight: 500 }}>The Conscious Trader Elite Oversight</p>
-        </div>
-        <button onClick={() => { navigator.clipboard.writeText(window.location.origin); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ padding: '10px 18px', borderRadius: 12, background: '#FFF', border: '1px solid #E5E5EA', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            {copied ? <Check color="#30D158" weight="bold" /> : <LinkSimple weight="bold" />} Invite Link
-        </button>
-      </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 30, background: 'rgba(0,0,0,0.03)', padding: 4, borderRadius: 14, width: 'fit-content' }}>
-        {[
-          { id: 'mission', label: 'Mission Control', icon: <ShieldCheck weight="fill" /> },
-          { id: 'whitelist', label: 'Whitelist', icon: <PlusCircle weight="fill" /> }, 
-          { id: 'intelligence', label: 'Intelligence', icon: <Brain weight="fill" /> },
-          { id: 'logs', label: 'System Logs', icon: <ListDashes weight="fill" /> },
-          { id: 'settings', label: 'Platform Settings', icon: <GearSix weight="fill" /> },
-          { id: 'inbox', label: 'Beta Inbox', icon: <EnvelopeSimple weight="fill" /> } 
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 11, border: 'none', fontSize: 13, fontWeight: 800, cursor: 'pointer', background: activeTab === tab.id ? '#FFF' : 'transparent', color: activeTab === tab.id ? '#007AFF' : '#8E8E93', boxShadow: activeTab === tab.id ? '0 4px 12px rgba(0,0,0,0.05)' : 'none' }}>
-            {tab.icon} {tab.label}
-          </button>
-        ))}
-      </div>
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F5F7' }}>
+      
+      {/* SIDEBAR NAVIGATION */}
+      <aside style={{ width: 280, background: 'white', borderRight: '1px solid #E5E5EA', padding: '30px 20px', display: 'flex', flexDirection: 'column', position: 'sticky', top: 0, height: '100vh' }}>
+        <div style={{ marginBottom: 35, paddingLeft: 10 }}>
+          <h1 style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '-0.8px', margin: 0, color: '#1D1D1F' }}>TCT ADMIN</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#30D158' }}></div>
+            <span style={{ color: '#86868B', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>System Operational</span>
+          </div>
+        </div>
+
+        <nav style={{ flex: 1, overflowY: 'auto' }}>
+          {menuGroups.map(group => (
+            <div key={group.title} style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: '10px', fontWeight: 800, color: '#C7C7CC', marginBottom: 12, paddingLeft: 12, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                {group.title}
+              </div>
+              {group.items.map(tab => (
+                <button 
+                  key={tab.id} 
+                  onClick={() => setActiveTab(tab.id)} 
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 14px', borderRadius: 12, border: 'none', fontSize: '13px', fontWeight: 700, cursor: 'pointer', marginBottom: 4,
+                    background: activeTab === tab.id ? '#007AFF' : 'transparent', 
+                    color: activeTab === tab.id ? 'white' : '#8E8E93',
+                    transition: 'all 0.2s ease'
+                  }}>
+                  {React.cloneElement(tab.icon, { size: 18, weight: activeTab === tab.id ? "fill" : "bold" })} 
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main style={{ flex: 1, padding: '40px 50px', overflowY: 'auto' }}>
+        
+        {/* HEADER AREA */}
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40 }}>
+          <h2 style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '-1px', margin: 0 }}>
+            {menuGroups.flatMap(g => g.items).find(i => i.id === activeTab)?.label}
+          </h2>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button 
+              onClick={() => { navigator.clipboard.writeText(window.location.origin); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
+              style={{ padding: '10px 18px', borderRadius: 12, background: '#FFF', border: '1px solid #E5E5EA', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                {copied ? <CheckCircle color="#30D158" weight="bold" /> : <LinkSimple weight="bold" />} Invite Link
+            </button>
+          </div>
+        </header>
+
+        {/* DYNAMISCHE CONTENT SECTIES */}
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
 
       {activeTab === 'mission' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginBottom: 25 }}>
-            <div className="bento-card" style={{ background: 'white' }}><span className="label-xs">GROWTH VELOCITY</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10, color: '#007AFF' }}>+{newTradersThisWeek}</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>New traders (last 7d)</div></div>
-            <div className="bento-card" style={{ background: 'white' }}><span className="label-xs">ACTIVE TODAY</span><div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{activeToday}</div><div style={{ fontSize: 12, color: '#86868B', marginTop: 5 }}>Traders logged in</div></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20, marginBottom: 25 }}>
+            <div className="bento-card" style={{ background: 'white' }}>
+              <span className="label-xs">TOTAL TRADERS</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{totalUsers}</div>
+              <div style={{ fontSize: 12, color: '#30D158', fontWeight: 700 }}>{newTradersThisWeek} new this week</div>
+            </div>
+            
+            <div className="bento-card" style={{ background: 'white' }}>
+              <span className="label-xs" style={{ color: '#FF9F0A' }}>PENDING AUDITS</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{pendingAudits}</div>
+              <div style={{ fontSize: 12, color: '#86868B' }}>Awaiting entrance</div>
+            </div>
+
+            <div className="bento-card" style={{ background: 'white' }}>
+              <span className="label-xs" style={{ color: '#FF3B30' }}>CHURN RISK</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{churnRisk}</div>
+              <div style={{ fontSize: 12, color: '#86868B' }}>Cancelling or expiring</div>
+            </div>
+
+            <div className="bento-card" style={{ background: '#007AFF', color: 'white' }}>
+              <span className="label-xs" style={{ opacity: 0.8 }}>ACTIVE TODAY</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>{activeToday}</div>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Current platform load</div>
+            </div>
           </div>
           <div className="bento-card" style={{ background: '#FFF', border: '1px solid #E5E5EA' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -389,6 +655,57 @@ Team The Conscious Trader`;
             </div>
           </div>
         </>
+      )}
+
+      {/* FINANCIAL DASHBOARD TAB */}
+      {activeTab === 'finance' && (
+        <div style={{ display: 'grid', gap: 25 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+            <div className="bento-card" style={{ background: 'linear-gradient(135deg, #1d1d1f 0%, #2c2c2e 100%)', color: 'white' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="label-xs" style={{ opacity: 0.6 }}>MONTHLY RECURRING (MRR)</span>
+                <TrendUp size={20} color="#30D158" />
+              </div>
+              <div style={{ fontSize: 38, fontWeight: 900, marginTop: 15 }}>€{finances.mrr.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: '#30D158', fontWeight: 700, marginTop: 5 }}>Verwachte jaaromzet: €{(finances.mrr * 12).toLocaleString()}</div>
+            </div>
+
+            <div className="bento-card" style={{ background: 'white' }}>
+              <span className="label-xs" style={{ color: '#007AFF' }}>NEW THIS WEEK</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>€{finances.weekly.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: '#86868B' }}>Vers kapitaal uit nieuwe subs</div>
+            </div>
+
+            <div className="bento-card" style={{ background: 'white' }}>
+              <span className="label-xs">YEAR TO DATE (YTD)</span>
+              <div style={{ fontSize: 32, fontWeight: 900, marginTop: 10 }}>€{finances.ytd.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: '#86868B' }}>Totaal omzet in {new Date().getFullYear()}</div>
+            </div>
+          </div>
+
+          {/* Retention & Growth Analysis */}
+          <div className="bento-card" style={{ background: 'white' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
+               <Pulse size={20} color="#AF52DE" /> Growth Analytics
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
+               <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 15 }}>LTV (LIFETIME VALUE) INDICATOR</div>
+                  <div style={{ height: 10, background: '#F2F2F7', borderRadius: 5, overflow: 'hidden' }}>
+                     <div style={{ width: '65%', height: '100%', background: '#AF52DE' }}></div>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#86868B', marginTop: 10 }}>Je gemiddelde member blijft 6.4 maanden actief.</p>
+               </div>
+               <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 15 }}>CHURN RATE (30D)</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: '#FF3B30' }}>
+                    {totalUsers > 0 ? ((churnRisk / totalUsers) * 100).toFixed(1) : "0.0"}%
+                  </div>
+                  <p style={{ fontSize: 11, color: '#86868B', marginTop: 5 }}>Leden die hebben opgezegd of bijna verlopen.</p>
+               </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {activeTab === 'whitelist' && (
@@ -540,11 +857,15 @@ Team The Conscious Trader`;
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <button 
-                  onClick={() => { /* ... invitation logica ... */ }}
-                  style={{ background: '#F2F2F7', color: '#1D1D1F', border: 'none', padding: '10px 18px', borderRadius: '12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  Copy Mail
-                </button>
+                onClick={async () => {
+                  const mailText = intake.approvedAs === 'beta_tester' ? 'Beta invitation' : 'Standard invitation';
+                  await navigator.clipboard.writeText(mailText); // Hier kun je de mail variabelen uit approveTrader gebruiken
+                  alert("Invitation text copied!");
+                }}
+                style={{ background: '#F2F2F7', color: '#1D1D1F', border: 'none', padding: '10px 18px', borderRadius: '12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+              >
+                Copy Mail
+              </button>
                 <button onClick={() => deleteDoc(doc(db, "whitelist_intakes", intake.id))} style={{ color: '#FF3B30', background: 'rgba(255, 59, 48, 0.05)', border: 'none', padding: '10px', borderRadius: '12px', cursor: 'pointer' }}>
                   <Trash size={18} />
                 </button>
@@ -556,272 +877,99 @@ Team The Conscious Trader`;
   </div>
 )}
 
-      {activeTab === 'intelligence' && (
-        <div className="bento-card" style={{ padding: 0, overflow: 'hidden', background: 'white' }}>
-          <div style={{ padding: '20px 25px', borderBottom: '1px solid #F5F5F7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 900, fontSize: 14 }}>TRADER REGISTRY</span>
-            <input type="text" placeholder="Search traders..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: 350, padding: '12px 15px', borderRadius: 14, border: '1px solid #E5E5EA', fontSize: 14 }} />
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ background: '#F9F9FB' }}>
-              <tr style={{ textAlign: 'left', fontSize: 11, color: '#8E8E93', textTransform: 'uppercase', letterSpacing: 1 }}>
-                <th style={{ padding: '15px 25px' }}>Trader</th>
-                <th>Status</th>
-                <th>Subscription End</th>
-                <th>Last Active</th>
-                <th style={{ textAlign: 'right', padding: '15px 25px' }}>Management</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.filter(u => u.email?.toLowerCase().includes(searchTerm.toLowerCase())).map(u => (
-                  <tr key={u.id} style={{ borderBottom: '1px solid #F5F5F7' }}>
-                    <td style={{ padding: '15px 25px' }}>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{u.displayName || 'Anonymous'}</div>
-                      <div style={{ fontSize: 11, color: '#8E8E93' }}>{u.email}</div>
-                    </td>
-                    <td>
-                        {u.isApproved ? (
-                            <span style={{ color: '#30D158', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <CheckCircle weight="fill" size={14} /> APPROVED
-                            </span>
-                        ) : (
-                            <span style={{ color: '#FF9F0A', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <Clock weight="fill" size={14} /> PENDING
-                            </span>
-                        )}
-                    </td>
-                    <td style={{ fontSize: 12 }}>{formatExpiry(u.currentPeriodEnd)}</td>
-                    <td style={{ fontSize: 12, fontWeight: 600 }}>{formatLastActive(u.lastLogin).text}</td>
-                    <td style={{ textAlign: 'right', padding: '15px 25px' }}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        {/* APPROVE NOW KNOP VOOR PENDING USERS */}
-                        {!u.isApproved && (
-                          <button 
-                            onClick={() => activateTraderDirectly(u.id)}
-                            style={{ background: '#007AFF15', border: 'none', color: '#007AFF', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                          >
-                            <CheckCircle size={14} weight="fill" /> APPROVE NOW
-                          </button>
-                        )}
-                        <button 
-                            onClick={() => extendAccess(u.id)}
-                            title="Extend 30 Days"
-                            style={{ background: '#30D15815', border: 'none', color: '#30D158', padding: '6px 10px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                        >
-                            <CalendarPlus size={14} /> +30D
-                        </button>
-                        <button 
-                            onClick={() => revokeAccess(u.id)}
-                            title="Revoke Access"
-                            style={{ background: '#FF3B3015', border: 'none', color: '#FF3B30', padding: '6px', borderRadius: 8, cursor: 'pointer' }}
-                        >
-                            <XCircle size={18} />
-                        </button>
-                        <button 
-                            onClick={() => toggleFounder(u)}
-                            style={{ border: 'none', background: u.isFounder ? '#AF52DE15' : '#F2F2F7', color: u.isFounder ? '#AF52DE' : '#8E8E93', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
-                        >
-                            FOUNDER
-                        </button>
-                        <button onClick={() => deleteUser(u.id)} style={{ border: 'none', background: 'none', color: '#FF3B30', opacity: 0.3, cursor: 'pointer' }}><Trash size={18}/></button>
-                      </div>
-                    </td>
-                  </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+     {activeTab === 'intelligence' && (
+  <TraderRegistry 
+    users={users} 
+    searchTerm={searchTerm} 
+    setSearchTerm={setSearchTerm} 
+    formatExpiry={formatExpiry} 
+    formatLastActive={formatLastActive} 
+    activateTraderDirectly={activateTraderDirectly} 
+    extendAccess={extendAccess} 
+    revokeAccess={revokeAccess} 
+    toggleFounder={toggleFounder} 
+    deleteUser={deleteUser} 
+    impersonateUser={impersonateUser}
+  />
+)}
 
       {activeTab === 'inbox' && (
-         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: 'calc(100vh - 250px)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, background: 'white', padding: '15px 25px', borderRadius: 16, border: '1px solid #E5E5EA' }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                    <MagnifyingGlass size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#8E8E93' }} />
-                    <input type="text" placeholder="Search user email..." value={inboxSearch} onChange={(e) => setInboxSearch(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: 12, border: '1px solid #F2F2F7', fontSize: 13 }} />
-                </div>
-                <div style={{ display: 'flex', background: '#F5F5F7', padding: 4, borderRadius: 10, gap: 4 }}>
-                    {[{ id: 'all', label: 'All' }, { id: 'unread', label: 'Unread' }, { id: 'read', label: 'Replied' }].map(f => (
-                        <button key={f.id} onClick={() => setInboxFilter(f.id)} style={{ border: 'none', background: inboxFilter === f.id ? 'white' : 'transparent', padding: '6px 12px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', boxShadow: inboxFilter === f.id ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>{f.label}</button>
-                    ))}
-                </div>
-            </div>
+  <InboxManager 
+    inboxSearch={inboxSearch}
+    setInboxSearch={setInboxSearch}
+    inboxFilter={inboxFilter}
+    setInboxFilter={setInboxFilter}
+    filteredInbox={filteredInbox}
+    selectedMessage={selectedMessage}
+    setSelectedMessage={setSelectedMessage}
+    closeTicket={closeTicket}
+    deleteFeedbackItem={deleteFeedbackItem}
+    replyText={replyText}
+    setReplyText={setReplyText}
+    replyAttachment={replyAttachment}
+    setReplyAttachment={setReplyAttachment}
+    generateAiDraft={generateAiDraft}
+    isAiLoading={isAiLoading}
+    handleAdminFileChange={handleAdminFileChange}
+    sendReply={sendReply}
+  />
+)}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 20, flex: 1, overflow: 'hidden' }}>
-              <div style={{ background: 'white', borderRadius: 16, border: '1px solid #E5E5EA', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {filteredInbox.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 40, color: '#8E8E93' }}>No messages.</div>
-                ) : (
-                  filteredInbox.map(item => (
-                      <div 
-                        key={item.id} 
-                        onClick={() => setSelectedMessage(item)} // VOEG DEZE REGEL TOE
-                        style={{ 
-                          padding: '15px 20px', 
-                          borderBottom: '1px solid #F5F5F7', 
-                          cursor: 'pointer', 
-                          background: selectedMessage?.id === item.id ? 'rgba(0,122,255,0.05)' : 'transparent', 
-                          position: 'relative' 
-                        }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: '#1D1D1F' }}>{item.userEmail}</span>
-                        <span style={{ fontSize: 10, color: '#8E8E93' }}>{item.updatedAt?.toDate().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' })}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <div style={{ width: 16, height: 16, borderRadius: 4, background: item.type === 'bug' ? '#FF3B3015' : '#007AFF15', color: item.type === 'bug' ? '#FF3B30' : '#007AFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {item.type === 'bug' ? <Bug size={10} weight="fill"/> : <Lightbulb size={10} weight="fill"/>}
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: item.type === 'bug' ? '#FF3B30' : '#007AFF', textTransform: 'uppercase' }}>{item.status || 'OPEN'}</span>
-                        {item.status === 'replied' && <CheckCircle size={12} color="#30D158" weight="fill" />}
-                        {item.status === 'closed' && <LockSimple size={12} color="#8E8E93" weight="bold" />}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#86868B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.message.substring(0, 45)}...</div>
-                      {selectedMessage?.id === item.id && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: '#007AFF' }} />}
-                    </div>
-                  ))
-                )}
-              </div>
+     {activeTab === 'content' && (
+  <ContentManager 
+  faqs={faqs}
+  setShowFaqModal={setShowFaqModal}
+  pricing={pricing}
+  setPricing={setPricing} 
+  setNewFaq={setNewFaq}
+  newFaq={newFaq}
+  handleAddFaq={handleAddFaq}
+  handleUpdatePricing={handleUpdatePricing}
+  scheduledChange={scheduledChange}
+  setScheduledChange={setScheduledChange}
+  handleSchedulePrice={handleSchedulePrice}
+  priceLogs={priceLogs}
+/>
+)}
 
-              <div style={{ background: 'white', borderRadius: 16, border: '1px solid #E5E5EA', overflowY: 'auto' }}>
-                {selectedMessage ? (
-                  <div style={{ padding: 30 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 30, borderBottom: '1px solid #F5F5F7', paddingBottom: 20 }}>
-                      <div>
-                        <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{selectedMessage.userEmail}</h2>
-                        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                          <span style={{ fontSize: 11, color: '#8E8E93' }}>{selectedMessage.createdAt?.toDate().toLocaleString('nl-NL')}</span>
-                          <span style={{ fontSize: 10, background: '#F2F2F7', padding: '2px 8px', borderRadius: 4, fontWeight: 800 }}>{selectedMessage.status?.toUpperCase() || 'OPEN'}</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 10 }}>
-                        {selectedMessage.status !== 'closed' && (
-                            <button onClick={() => closeTicket(selectedMessage.id)} style={{ padding: '8px 15px', background: '#F2F2F7', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <LockSimple size={16} /> Close Ticket
-                            </button>
-                        )}
-                        <button onClick={() => deleteFeedbackItem(selectedMessage.id)} style={{ padding: 8, background: '#FF3B3010', border: 'none', color: '#FF3B30', borderRadius: 8 }}><Trash size={20}/></button>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: 40 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 10, textTransform: 'uppercase' }}>Message</div>
-                      <div style={{ fontSize: 15, color: '#1D1D1F', background: '#F9F9FB', padding: 20, borderRadius: 12, lineHeight: 1.6 }}>{selectedMessage.message}</div>
-                      {selectedMessage.attachment && (
-                        <div style={{ marginTop: 20 }}>
-                          <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 10, textTransform: 'uppercase' }}>Screenshot</div>
-                          <a href={selectedMessage.attachment} target="_blank" rel="noreferrer">
-                            <img src={selectedMessage.attachment} style={{ maxWidth: '100%', borderRadius: 12, border: '1px solid #E5E5EA' }} alt="Attachment" />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ borderTop: '1px solid #F5F5F7', paddingTop: 30 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#8E8E93', marginBottom: 15, textTransform: 'uppercase' }}>Conversation Flow</div>
-                      {selectedMessage.status === 'closed' ? (
-                          <div style={{ textAlign: 'center', padding: 30, background: '#F2F2F7', borderRadius: 12, color: '#8E8E93' }}>
-                             <LockSimple size={32} style={{ marginBottom: 10 }} />
-                             <div style={{ fontWeight: 700 }}>Conversation is locked and closed.</div>
-                          </div>
-                      ) : (
-                        <div style={{ display: 'grid', gap: 15 }}>
-                          {selectedMessage.reply && (
-                              <div style={{ background: 'rgba(48, 209, 88, 0.05)', padding: 15, borderRadius: 12, borderLeft: '4px solid #30D158', marginBottom: 10 }}>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: '#30D158', marginBottom: 4 }}>LAST SENT REPLY:</div>
-                                <div style={{ fontSize: 14 }}>{selectedMessage.reply}</div>
-                                {selectedMessage.replyAttachment && (
-                                    <div style={{ marginTop: 10 }}>
-                                        <img src={selectedMessage.replyAttachment} style={{ width: 120, borderRadius: 8, border: '1px solid #E5E5EA' }} alt="Reply Attachment" />
-                                    </div>
-                                )}
-                              </div>
-                          )}
-                          <div style={{ position: 'relative' }}>
-                            <textarea 
-                                value={replyText[selectedMessage.id] || ''} 
-                                onChange={e => setReplyText({...replyText, [selectedMessage.id]: e.target.value})} 
-                                placeholder="Type follow-up or reply..." 
-                                style={{ width: '100%', padding: '15px', borderRadius: 12, border: '1px solid #E5E5EA', outline: 'none', minHeight: 150, fontFamily: 'inherit' }} 
-                            />
-                            {replyAttachment[selectedMessage.id] && (
-                                <div style={{ position: 'absolute', bottom: 15, left: 15, display: 'flex', alignItems: 'center', gap: 10, background: 'white', padding: '5px 10px', borderRadius: 8, border: '1px solid #E5E5EA' }}>
-                                    <img src={replyAttachment[selectedMessage.id]} style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} alt="Preview" />
-                                    <Trash size={16} color="#FF3B30" style={{ cursor: 'pointer' }} onClick={() => setReplyAttachment(prev => ({ ...prev, [selectedMessage.id]: null }))} />
-                                </div>
-                            )}
-                          </div>
-                          
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div style={{ display: 'flex', gap: 10 }}>
-                                <button onClick={() => generateAiDraft(selectedMessage.id, selectedMessage.message)} disabled={isAiLoading === selectedMessage.id} style={{ background: '#1C1C1E', color: 'white', border: 'none', borderRadius: 10, padding: '10px 20px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    {isAiLoading === selectedMessage.id ? <ArrowsClockwise size={18} className="spinner" /> : <Robot size={18} weight="fill" />} AI Draft
-                                </button>
-                                <label style={{ background: '#F2F2F7', color: '#1D1D1F', borderRadius: 10, padding: '10px 15px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
-                                    <Camera size={18} /> Attachment
-                                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleAdminFileChange(selectedMessage.id, e)} />
-                                </label>
-                              </div>
-
-                              <button onClick={() => sendReply(selectedMessage.id, selectedMessage.message, selectedMessage.userEmail)} disabled={!replyText[selectedMessage.id]} style={{ background: '#007AFF', color: 'white', border: 'none', borderRadius: 10, padding: '10px 30px', cursor: 'pointer', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, opacity: replyText[selectedMessage.id] ? 1 : 0.5 }}>
-                                Send Reply <PaperPlaneTilt weight="fill" size={16}/>
-                              </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#C7C7CC' }}>
-                    <EnvelopeSimple size={64} weight="thin" />
-                    <p style={{ marginTop: 15, fontSize: 14, fontWeight: 600 }}>Select a message to view conversation</p>
-                  </div>
-                )}
-              </div>
-            </div>
-         </div>
+{/* Logs & Settings Tabs */}
+      {(activeTab === 'logs' || activeTab === 'settings') && (
+        <SystemManager 
+          activeTab={activeTab} 
+          tctLogs={tctLogs} 
+          settings={settings} 
+          updateGlobalSetting={updateGlobalSetting} 
+        />
       )}
 
-      {activeTab === 'logs' && (
-        <div className="bento-card" style={{ background: 'white' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <span style={{ fontWeight: 900 }}>AI INSIGHT LOGS</span>
-                <button style={{ border: 'none', background: '#F2F2F7', padding: '8px 15px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Export CSV</button>
+     {/* FAQ ORDER MODAL */}
+      {showFaqModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'white', width: '100%', maxWidth: 600, borderRadius: 30, padding: 40, maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+              <h2 style={{ margin: 0, fontWeight: 900 }}>FAQ Management</h2>
+              <button onClick={() => setShowFaqModal(false)} style={{ background: '#F2F2F7', border: 'none', padding: '10px 20px', borderRadius: 12, fontWeight: 700, cursor: 'pointer' }}>Close</button>
             </div>
-            <div style={{ maxHeight: 600, overflowY: 'auto' }}>
-                {tctLogs.map(log => (
-                    <div key={log.id} style={{ padding: '15px 0', borderBottom: '1px solid #F5F5F7' }}>
-                        <div style={{ display: 'flex', gap: 10, marginBottom: 5 }}>
-                            <span style={{ fontWeight: 800, fontSize: 13 }}>{log.userName || 'Unknown'}</span>
-                            <span style={{ color: '#8E8E93', fontSize: 11 }}>{log.createdAt?.toDate().toLocaleString()}</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: '#444' }}>"{log.insight}"</div>
-                    </div>
-                ))}
+            <div style={{ display: 'grid', gap: 10 }}>
+              {faqs.map((faq) => (
+                <div key={faq.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 15, background: '#F9F9FB', borderRadius: 16, border: '1px solid #E5E5EA' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{faq.question}</span>
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    <button onClick={() => moveFaq(faq.id, faq.order, 'up')} style={{ border: 'none', background: 'white', padding: 5, borderRadius: 6, cursor: 'pointer' }}>↑</button>
+                    <button onClick={() => moveFaq(faq.id, faq.order, 'down')} style={{ border: 'none', background: 'white', padding: 5, borderRadius: 6, cursor: 'pointer' }}>↓</button>
+                    <button onClick={() => deleteFaq(faq.id)} style={{ border: 'none', background: 'none', color: '#FF3B30', cursor: 'pointer', marginLeft: 10 }}><Trash size={18} /></button>
+                  </div>
+                </div>
+              ))}
             </div>
+          </div>
         </div>
       )}
 
-      {activeTab === 'settings' && (
-        <div style={{ display: 'grid', gap: 20 }}>
-            <div className="bento-card" style={{ background: 'white' }}>
-                <h3 style={{ margin: '0 0 20px 0' }}>Global Controls</h3>
-                <div style={{ display: 'grid', gap: 15 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div><div style={{ fontWeight: 700 }}>Maintenance Mode</div><div style={{ fontSize: 12, color: '#86868B' }}>Lock platform for all users</div></div>
-                        <button onClick={() => updateGlobalSetting('maintenanceMode', !settings.maintenanceMode)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
-                            {settings.maintenanceMode ? <ToggleRight size={40} color="#FF3B30" weight="fill" /> : <ToggleLeft size={40} color="#C7C7CC" weight="fill" />}
-                        </button>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div><div style={{ fontWeight: 700 }}>Public Signups</div><div style={{ fontSize: 12, color: '#86868B' }}>Open door for new traders</div></div>
-                        <button onClick={() => updateGlobalSetting('signupOpen', !settings.signupOpen)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
-                            {settings.signupOpen ? <ToggleRight size={40} color="#30D158" weight="fill" /> : <ToggleLeft size={40} color="#C7C7CC" weight="fill" />}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-    </div>
-  );
-}
+        </div> {/* Einde van de animatie wrapper */}
+      </main>
+    </div> 
+  ); 
+} 
+
+export default Admin;

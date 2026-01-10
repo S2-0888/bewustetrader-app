@@ -19,6 +19,7 @@ import Settings from './components/Settings';
 import Admin from './components/Admin';
 import IntakeChat from './components/IntakeChat';
 import Insights from './components/Insights';
+import CTraderCallback from './components/CTraderCallback';
 
 /**
  * HULP COMPONENT VOOR NAVIGATIE
@@ -242,6 +243,9 @@ function AppContent() {
             <div className="pending">Access Pending...</div>
           ) : <Navigate to="/" replace />
         } />
+
+       <Route path="/auth/ctrader/callback" element={<CTraderCallback />} />
+
       </Routes>
       <FeedbackWidget />
       <OnboardingModal isOpen={showOnboarding} onClose={() => {

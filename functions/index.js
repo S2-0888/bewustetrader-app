@@ -2,6 +2,8 @@ const { onCall, onRequest } = require("firebase-functions/v2/https");
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const busboy = require("busboy");
+const axios = require("axios");
+const functions = require("firebase-functions"); // Voeg deze toe als hij mist
 
 // 1. Importeer de nieuwe sync handler
 const mt5SyncHandler = require('./sync/mt5Sync');
@@ -675,3 +677,173 @@ exports.mt5DataReceiver = onRequest({
   region: "europe-west1", 
   cors: true 
 }, mt5SyncHandler(db)); // We geven alleen 'db' mee, 'FieldValue' wordt nu in mt5Sync.js zelf geregeld.
+
+// --- 9. SYNC CTRADER TRADES (Gecorrigeerd met Bearer Header) ---
+exports.syncCTraderTrades = onCall({ 
+  secrets: ["CTRADER_CLIENT_SECRET"],
+  region: "europe-west1",
+  cors: true 
+}, async (request) => {
+  const { auth } = request;
+  if (!auth) throw new Error("unauthenticated");
+
+  const userRef = admin.firestore().collection("users").doc(auth.uid);
+  const userDoc = await userRef.get();
+  // We halen de token op die we in stap 11 hebben opgeslagen
+  const accessToken = userDoc.data()?.ctrader_tokens?.access_token;
+
+  if (!accessToken) throw new Error("Geen cTrader verbinding gevonden in je profiel.");
+
+  try {
+    // STAP 1: Haal accounts op via de veilige methode
+    const accountRes = await axios.get(`https://openapi.ctrader.com/apps/getAccountsByAccessToken`, {
+        params: { access_token: accessToken }
+    });
+    const accounts = accountRes.data.ctidTraderAccount || [];
+
+    let totalSynced = 0;
+
+    for (const acc of accounts) {
+      // STAP 2: Haal deals op met Bearer Authorization
+      const dealsRes = await axios.get(`https://openapi.ctrader.com/apps/getDealsByAccountId`, {
+        params: {
+          ctidTraderAccountId: acc.ctidTraderAccountId, 
+          fromTimestamp: Date.now() - (24 * 60 * 60 * 1000), // Laatste 24 uur
+          toTimestamp: Date.now()
+        },
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (dealsRes.data.deal) {
+        const batch = admin.firestore().batch();
+        dealsRes.data.deal.forEach(deal => {
+          const syncRef = userRef.collection("incoming_syncs").doc(`ct_${deal.dealId}`);
+          batch.set(syncRef, {
+            source: "ctrader_cloud",
+            platform: "cTrader",
+            account_number: acc.traderLogin.toString(),
+            ticket: deal.dealId,
+            pnl: deal.netProfit / 100, // cTrader stuurt pnl vaak in cents
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          totalSynced++;
+        });
+        await batch.commit();
+      }
+    }
+
+    return { success: true, count: totalSynced };
+  } catch (error) {
+    console.error("cTrader Sync Error:", error.response?.data || error.message);
+    throw new Error("Sync mislukt: " + (error.response?.data?.description || error.message));
+  }
+});
+
+// --- 10. DISCOVER CTRADER ACCOUNTS (v2 optimized) ---
+exports.discoverCtraderAccounts = onCall({ 
+  region: "europe-west1",
+  cors: true 
+}, async (request) => {
+    if (!request.auth) throw new admin.functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+
+    try {
+        const userDoc = await admin.firestore().collection('users').doc(request.auth.uid).get();
+        const accessToken = userDoc.data()?.ctrader_tokens?.access_token;
+
+        if (!accessToken) throw new admin.functions.https.HttpsError('not-found', 'Geen verbinding gevonden.');
+
+        const response = await axios.get(`https://openapi.ctrader.com/apps/getAccountsByAccessToken`, {
+            params: { access_token: accessToken }
+        });
+        
+        const accounts = (response.data.ctidTraderAccount || []).map(acc => ({
+            number: acc.traderLogin.toString(),
+            brokerName: acc.brokerName || "cTrader Account",
+            currency: "USD",
+            type: "Live/Demo"
+        }));
+
+        return { success: true, accounts };
+    } catch (error) {
+        console.error("Discovery Error:", error.response?.data || error.message);
+        throw new admin.functions.https.HttpsError('internal', 'Kon accounts niet ophalen.');
+    }
+});
+
+// --- 11. EXCHANGE CTRADER CODE FOR TOKENS (Voldoet aan jouw documentatie) ---
+exports.exchangeCtraderCode = onCall({ 
+  secrets: ["CTRADER_CLIENT_SECRET"],
+  region: "europe-west1",
+  cors: true 
+}, async (request) => {
+    if (!request.auth) throw new Error('unauthenticated');
+    
+    const { code } = request.data;
+    const clientId = "20232"; 
+    const clientSecret = process.env.CTRADER_CLIENT_SECRET;
+    const redirectUri = "https://propfolio.app/auth/ctrader/callback";
+
+    try {
+        console.log("Exchange gestart voor UID:", request.auth.uid);
+
+        // We gebruiken GET met query parameters zoals in jouw cURL voorbeeld
+        const tokenUrl = `https://openapi.ctrader.com/apps/token?grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${clientId}&client_secret=${clientSecret}`;
+
+        const res = await axios.get(tokenUrl, {
+            headers: { 'Accept': 'application/json' }
+        });
+
+        // Gebruik de camelCase namen uit de cTrader OpenAPI documentatie
+        const { accessToken, refreshToken, expiresIn, errorCode, description } = res.data;
+
+        if (errorCode || !accessToken) {
+            throw new Error(description || "Geen accessToken ontvangen.");
+        }
+
+        // 2. Sla tokens op in Firestore (access_token met underscore voor consistentie in je DB)
+        await admin.firestore().collection('users').doc(request.auth.uid).update({
+            ctrader_tokens: {
+                access_token: accessToken,
+                refresh_token: refreshToken,
+                expires_at: Date.now() + (expiresIn * 1000)
+            },
+            ctrader_connected: true,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 3. Directe Handshake/Discovery om accounts te koppelen
+        const accountRes = await axios.get(`https://openapi.ctrader.com/apps/getAccountsByAccessToken`, {
+            params: { access_token: accessToken }
+        });
+        
+        const accounts = accountRes.data.ctidTraderAccount || [];
+
+        if (accounts.length > 0) {
+            const batch = admin.firestore().batch();
+            accounts.forEach(acc => {
+                const syncRef = admin.firestore()
+                    .collection('users').doc(request.auth.uid)
+                    .collection('incoming_syncs')
+                    .doc(`handshake_${acc.traderLogin}`);
+                
+                batch.set(syncRef, {
+                    source: "ctrader_cloud",
+                    platform: "cTrader",
+                    account_number: acc.traderLogin.toString(),
+                    firm: acc.brokerName || "cTrader",
+                    type: "discovery_signal",
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            });
+            await batch.commit();
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error("CTRADER_EXCHANGE_ERROR:", error.response?.data || error.message);
+        const errorMsg = error.response?.data?.description || error.message;
+        throw new Error("Koppelen mislukt: " + errorMsg);
+    }
+});

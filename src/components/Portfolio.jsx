@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, auth } from '../lib/firebase';
+import { db, auth, functions } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import AccountIntelligenceReport from './AccountIntelligenceReport';
 import { 
   Trash, MagnifyingGlass, X, PlusCircle, ShieldWarning, 
-  Calendar, Funnel, Hash, Percent, Microphone, Waveform, Stop, Gear, Sparkle, MagicWand, CurrencyCircleDollar
+  Calendar, Funnel, Hash, Percent, Microphone, Waveform, Stop, Gear, Sparkle, MagicWand, CurrencyCircleDollar, Binoculars
 } from '@phosphor-icons/react';
 
 const ACCOUNT_TYPES = ["Normal", "Swing", "Intraday (No Weekend)", "Raw Spread"];
@@ -23,6 +23,8 @@ export default function Portfolio() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [incomingSyncs, setIncomingSyncs] = useState([]);
+  const [pendingCloudAccounts, setPendingCloudAccounts] = useState([]);
+  const [isDiscovering, setIsDiscovering] = useState(false);
   
   // Shadow Audit States
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -152,6 +154,27 @@ export default function Portfolio() {
       });
       setPrimaryMistake(''); setReflectionSummary(''); setAiAnalysisData(null);
     } catch (err) { console.error("Failed to save audit:", err); }
+  };
+    const handleDiscoverCloudAccounts = async () => {
+    setIsDiscovering(true);
+    try {
+      const { httpsCallable } = await import('firebase/functions');
+      const discoverFunc = httpsCallable(functions, 'discoverCtraderAccounts');
+      const result = await discoverFunc();
+      
+      // Filter de accounts die nog NIET in de huidige accounts lijst staan
+      const newAccounts = result.data.accounts.filter(cloudAcc => 
+        !accounts.some(vaultAcc => String(vaultAcc.accountNumber) === String(cloudAcc.number))
+      );
+      
+      setPendingCloudAccounts(newAccounts);
+      if (newAccounts.length === 0) alert("No new accounts found on cTrader.");
+    } catch (err) {
+      console.error("Discovery error:", err);
+      alert("Failed to fetch accounts from cTrader.");
+    } finally {
+      setIsDiscovering(false);
+    }
   };
 
   const updateFromPct = (type, pctValue) => {
@@ -296,6 +319,51 @@ export default function Portfolio() {
             </div>
         </form>
       </div>
+
+      {/* CLOUD DISCOVERY SECTIE */}
+      {userProfile?.ctrader_id && (
+        <div style={{ marginBottom: 35 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: '#86868B', letterSpacing: '1px' }}>CLOUD DISCOVERY</div>
+                <button 
+                    onClick={handleDiscoverCloudAccounts} 
+                    disabled={isDiscovering}
+                    style={{ background: 'none', border: 'none', color: '#007AFF', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                    <Binoculars size={16} /> {isDiscovering ? 'Searching...' : 'Scan cTrader Cloud'}
+                </button>
+            </div>
+
+            {pendingCloudAccounts.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 15 }}>
+                    {pendingCloudAccounts.map(acc => (
+                        <div key={acc.number} className="bento-card" style={{ padding: '15px 20px', borderLeft: '4px solid #FF9F0A', background: '#FFF9F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <div style={{ fontWeight: 800, fontSize: 13 }}>{acc.brokerName || 'cTrader Account'}</div>
+                                <div style={{ fontSize: 11, color: '#86868B' }}>ID: {acc.number} • {acc.accountType}</div>
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    setForm({
+                                        ...form,
+                                        accountNumber: String(acc.number),
+                                        firm: acc.brokerName || "",
+                                        size: acc.balance || "",
+                                        accountCurrency: acc.currency || "USD"
+                                    });
+                                    setPendingCloudAccounts(prev => prev.filter(a => a.number !== acc.number));
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                style={{ background: '#1D1D1F', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                            >
+                                CONFIGURE
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+      )}
 
       {/* FILTERS */}
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', marginBottom: 15, gap: 10 }}>

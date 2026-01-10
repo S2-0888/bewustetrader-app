@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { 
   Trash, X, Wallet, Gear,
   Smiley, SmileySad, SmileyMeh, 
@@ -162,6 +163,7 @@ export default function TradeLab() {
   const [activeTab, setActiveTab] = useState('review'); // 'pretrade' of 'review'
   const [isReadOnlyMode, setIsReadOnlyMode] = useState(false);
   const [validationError, setValidationError] = useState(''); // Nieuwe state voor elegante meldingen
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -242,6 +244,28 @@ export default function TradeLab() {
     }, 2000);
     return () => clearTimeout(autoSaveTimer);
   }, [editingTrade]); 
+
+  const handleLinkTrade = async (tradeId, mt5Data) => {
+    const user = auth.currentUser;
+    const tradeRef = doc(db, "users", user.uid, "trades", tradeId);
+    
+    try {
+        await updateDoc(tradeRef, {
+            mt5_ticket: mt5Data.ticket,
+            exitPrice: Number(mt5Data.close_price || 0),
+            grossPnl: Number(mt5Data.profit || 0),
+            commission: Number(mt5Data.commission || 0),
+            pnl: Number(mt5Data.pnl || mt5Data.profit || 0),
+            status: 'CLOSED',
+            closedAt: serverTimestamp(),
+            reviewCompleted: false
+        });
+        await deleteDoc(doc(db, "users", user.uid, "incoming_syncs", mt5Data.id));
+        alert("Trade succesvol gekoppeld!");
+    } catch (err) {
+        console.error("Link error:", err);
+    }
+  };
 
   const handleSimpleOpen = async (e) => {
     e.preventDefault();
@@ -417,6 +441,19 @@ export default function TradeLab() {
         actualExits: trade.actualExits || (trade.exitPrice ? [{price: trade.exitPrice}] : [{ price: '' }]) 
     });
   };
+
+  const handleCloudSync = async () => {
+    setIsSyncing(true);
+    const functions = getFunctions();
+    const syncFunc = httpsCallable(functions, 'syncCTraderTrades');
+    try {
+        await syncFunc();
+    } catch (err) {
+        console.error("Sync error:", err);
+    } finally {
+        setIsSyncing(false);
+    }
+  };
   
 
   return (
@@ -427,6 +464,27 @@ export default function TradeLab() {
             <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 800, margin: 0 }}>Trade Lab</h1>
             {!isMobile && <p style={{ color: '#86868B', fontSize: 14 }}>Operations & Review</p>}
         </div>
+
+        <button 
+    onClick={handleCloudSync} 
+    disabled={isSyncing}
+    style={{ 
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: 8, 
+      padding: '10px 16px', 
+      borderRadius: '12px', 
+      border: '1px solid #E5E5EA', 
+      background: 'white', 
+      fontWeight: 700, 
+      fontSize: 13,
+      cursor: isSyncing ? 'not-allowed' : 'pointer',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+    }}
+  >
+    <Lightning size={16} weight="fill" color={isSyncing ? "#86868B" : "#FF9F0A"} className={isSyncing ? "animate-spin" : ""} />
+    {isSyncing ? "SYNCING..." : "SYNC EXECUTIONS"}
+  </button>
         
       </div>
 
@@ -1096,6 +1154,16 @@ export default function TradeLab() {
           0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); } 
           70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); } 
           100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } 
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .animate-spin {
+          animation: spin 1s linear infinite;
+          display: inline-block; /* Zorgt dat het icoontje netjes om zijn eigen as draait */
         }
       `}</style>
     </div>
